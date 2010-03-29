@@ -19,4 +19,4 @@ for f in tests/*; do \
 done
 
 clean:
-	rm -f $(PROG) _[0-9]_*.log
+	rm -f $(PROG)
