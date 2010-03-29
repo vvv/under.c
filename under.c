@@ -13,12 +13,8 @@
 #endif
 
 #ifdef DEBUG
-#  define debug_print(format, ...)			\
-	do {						\
-		fputs("*DEBUG* ", stderr);		\
-		fprintf(stderr, format, ##__VA_ARGS__); \
-		fputc('\n', stderr);			\
-	} while (0)
+#  define debug_print(format, ...) \
+	fprintf(stderr, "*DEBUG* " format "\n", ##__VA_ARGS__)
 #else
 #  define debug_print(format, ...)
 #endif
@@ -170,25 +166,24 @@ process(const char *inpath, struct MemBuf *mem)
 
 	struct Stream str = { S_EOF, NULL, 0 };
 	size_t filepos = 0;
-	size_t nread = 0;
 
-	while (1) {
-		nread = fread(mem->buf, 1, mem->bufsize, f);
-		if (nread == 0) {
-			if (feof(f))
-				break; /* done with file */
-			else if (ferror(f))
-				/* can't guarantee sane output any more */
-				die(errno, inpath);
-			else
-				error_at_line(1, errno, __FILE__, __LINE__,
-					      "impossible happened");
+	for (;;) {
+		if (str.size == 0) {
+			str.size = fread(mem->buf, 1, mem->bufsize, f);
+			if (str.size == 0) {
+				if (feof(f)) /* XXX using S_EOF is unclear */
+					goto out; /* done with file */
+				else if (ferror(f))
+					die(errno, inpath); /* input error */
+				else
+					assert(0 == 1); /* can't be */
+			}
+
+			debug_print("%d bytes read", str.size);
+
+			str.type = S_CHUNK;
+			str.data = mem->buf;
 		}
-		debug_print("%d bytes read", nread);
-
-		str.type = S_CHUNK;
-		str.data = mem->buf;
-		str.size = nread;
 
 		switch (_parse_tag_id(&str, &filepos)) {
 		case -2:
@@ -199,10 +194,11 @@ process(const char *inpath, struct MemBuf *mem)
 
 		default:
 			debug_print("_parse_tag_id succeeded");
-			break;
+			goto out;
 		}
 	}
 
+out:
 	return streq(inpath, "-") ? 0 : fclose(f);
 }
 
