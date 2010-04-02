@@ -3,9 +3,7 @@
 #include <error.h>
 #include <errno.h>
 #include <string.h>
-#include <sys/types.h>
 #include <sys/stat.h>
-#include <unistd.h>
 #include <assert.h>
 
 #ifndef MAX
@@ -14,18 +12,74 @@
 
 #ifdef DEBUG
 #  define debug_print(format, ...) \
-	fprintf(stderr, "*DEBUG* " format "\n", ##__VA_ARGS__)
+	fprintf(stderr, "(DEBUG) " format "\n", ##__VA_ARGS__)
 #else
 #  define debug_print(format, ...)
 #endif
 
-#define die(errnum, format, ...) \
-	error(1, errnum, format, ##__VA_ARGS__)
+#define die_errno(format, ...)  error(1, errno, format, ##__VA_ARGS__)
+#define die(format, ...)  error(1, 0, format, ##__VA_ARGS__)
 
 #ifdef DEBUG
 #  define UNDEFINED \
 	error_at_line(1, 0, __FILE__, __LINE__, "XXX not implemented")
 #endif
+
+static inline int
+streq(const char *s1, const char *s2)
+{
+	return strcmp(s1, s2) == 0;
+}
+
+static void *
+xrealloc(void *ptr, size_t sz)
+{
+	void *rv = realloc(ptr, sz);
+	if (rv == NULL)
+		die_errno("Virtual memory exhausted");
+	return rv;
+}
+
+/* Memory buffer. */
+struct MemBuf {
+	unsigned char *data; /* pointer to malloc(3)-ated memory */
+	size_t size; /* size of buffer */
+};
+
+/*
+ * Adjust buffer to file's blocksize.
+ *
+ * Do nothing if size of buffer is equal to blocksize of file.
+ * Otherwise (re)allocate memory.
+ */
+static int
+adjust_buffer(FILE *f, struct MemBuf *buf)
+{
+	struct stat st;
+
+	if (fstat(fileno(f), &st) < 0)
+		return -1;
+	const unsigned long insize = st.st_blksize;
+
+	if (insize != buf->size) {
+		if (fstat(fileno(stdout), &st) < 0) {
+			error(0, errno, "fstat(STDOUT)");
+			return -1;
+		}
+		const unsigned long outsize = st.st_blksize;
+
+		buf->size = MAX(insize, outsize);
+		debug_print("adjust_buffer: realloc(%p, %ld)", buf->data,
+			    (unsigned long) buf->size);
+		buf->data = xrealloc(buf->data, buf->size);
+	}
+
+	return 0;
+}
+
+/* ---------------------------------------------------------------------
+ * Stream
+ */
 
 /*
  * A stream is a (continuing) sequence of elements bundled in Chunks.
@@ -40,89 +94,89 @@ struct Stream {
 
 	/*
 	 * If `type' is S_EOF, `dat' is either NULL (EOF reached
-	 * without error) or points to null-terminated error message.
+	 * without error) or points to a null-terminated error message.
 	 *
-	 * Otherwise (S_CHUNK), `dat' points to chunk data.
+	 * If `type' is S_CHUNK, `dat' points to chunk data, and
+	 * `size' is equal to the number of bytes in chunk.
 	 */
 	const unsigned char *data;
 
 	/*
-	 * Length of data chunk (S_CHUNK only).
+	 * Size of chunk.
 	 *
-	 * Zero length signifies a stream with no currently available
-	 * data but which is still continuing. A stream processor
-	 * should, informally speaking, ``suspend itself'' and wait
-	 * for more data to arrive.
+	 * S_CHUNK: Zero length signifies a stream with no currently
+	 * available data but which is still continuing. A stream
+	 * processor should, informally speaking, ``suspend itself''
+	 * and wait for more data to arrive.
 	 *
-	 * This value is meaningless for S_EOF streams.
+	 * `size' is always 0 for S_EOF, even if `data' points to an
+	 * error message.
 	 */
 	size_t size;
 };
 
-/* Memory buffer. */
-struct MemBuf {
-	unsigned char *buf; /* pointer to malloc-ated memory buffer */
-	size_t bufsize; /* size of buffer */
-};
-
-static inline int
-streq(const char *s1, const char *s2)
+static size_t
+retrieve(struct Stream *str, FILE *input, unsigned char *buf, size_t bufsize)
 {
-	return strcmp(s1, s2) == 0;
-}
+	assert(str->type == S_CHUNK); /* XXX And what about S_EOF? */
 
-static void *
-xrealloc(void *ptr, size_t sz)
-{
-	void *rv = realloc(ptr, sz);
-	if (rv == NULL)
-		die(errno, "Virtual memory exhausted");
-	return rv;
-}
+	/* A chunk must be contained in `buf'. */
+	assert(buf <= str->data);
+	assert(str->data + str->size <= buf + bufsize);
 
-/*
- * Do nothing if block size of file `f' is equal to `mem->bufsize'
- * (this is the case when input files are taken from the same filesystem).
- * Otherwise (re)allocate memory buffer and update the fields of `mem'.
- */
-static int
-maybe_realloc(FILE *f, const char *fpath, struct MemBuf *mem)
-{
-	struct stat st;
-
-	if (fstat(fileno(f), &st) < 0) {
-		error(0, errno, fpath);
-		return -1;
+	if (str->size != 0 && str->data != buf) {
+		/* Move the remains of old chunk to start of `buf'. */
+		memmove(buf, str->data, str->size);
 	}
-	const unsigned long insize = st.st_blksize;
 
-	if (insize != mem->bufsize) {
-		if (fstat(fileno(stdout), &st) < 0) {
-			error(0, errno, "fstat(STDOUT)");
-			return -1;
+	const size_t n = fread(buf + str->size, 1, bufsize - str->size, input);
+	if (n == 0) {
+		if (feof(input)) {
+			str->data = NULL;
+		} else if (ferror(input)) {
+			strncpy((char *) buf, strerror(errno), bufsize);
+			str->data = buf;
+		} else {
+			assert(0 == 1);
 		}
-		const unsigned long outsize = st.st_blksize;
 
-		mem->bufsize = MAX(insize, outsize);
-		debug_print("maybe_realloc: realloc(%p, %d)",
-			    mem->buf, mem->bufsize);
-		mem->buf = xrealloc(mem->buf, mem->bufsize);
+		str->type = S_EOF;
+		str->size = 0; /* Yes, even for error messages. */
+	} else {
+		str->type = S_CHUNK;
+		str->data = buf;
+		str->size += n;
 	}
 
-	return 0;
+	return str->size;
 }
 
-static void
-_shift(size_t n, struct Stream *str, size_t *filepos)
+/* ---------------------------------------------------------------------
+ * Iteratees
+ */
+
+enum { IE_CONT, IE_DONE };
+
+static int
+_count_A(unsigned int *z, struct Stream *str)
 {
-	assert(n <= str->size);
+	switch (str->type) {
+	case S_CHUNK:
+		for (; str->size > 0; ++str->data, --str->size) {
+			if (*str->data == 'A')
+				++(*z);
+		}
+		return IE_CONT;
 
-	str->data += n;
-	str->size -= n;
+	case S_EOF:
+		return IE_DONE;
 
-	*filepos += n;
+	default:
+		assert(0 == 1);
+	}
 }
 
+#if 0 /*XXX*/
 static int
 _parse_tag_id(struct Stream *str, size_t *filepos)
 {
@@ -136,7 +190,7 @@ _parse_tag_id(struct Stream *str, size_t *filepos)
 
 	putchar('(');
 
-	/* Tag class: Universal | Application | Context-specific | Private */
+	/* Tag class:  Universal | Application | Context-specific | Private */
 	putchar("uacp"[(c & 0xc0) >> 6]);
 
 	if ((c & 0x1f) == 0x1f)
@@ -148,9 +202,14 @@ _parse_tag_id(struct Stream *str, size_t *filepos)
 
 	return 0;
 }
+#endif /*XXX*/
+
+/* ---------------------------------------------------------------------
+ * Enumerator
+ */
 
 static int
-process(const char *inpath, struct MemBuf *mem)
+traverse(const char *inpath, struct MemBuf *buf)
 {
 	FILE *f = NULL;
 
@@ -161,61 +220,54 @@ process(const char *inpath, struct MemBuf *mem)
 		return -1;
 	}
 
-	if (maybe_realloc(f, inpath, mem) < 0)
+	if (adjust_buffer(f, buf) < 0) {
+		error(0, errno, inpath);
 		return -1;
-
-	struct Stream str = { S_EOF, NULL, 0 };
+	}
 	size_t filepos = 0;
 
+	struct Stream str = { S_CHUNK, buf->data, 0 };
+
+	unsigned int z = 0; /* XXX sum of 'A' characters */
 	for (;;) {
-		if (str.size == 0) {
-			str.size = fread(mem->buf, 1, mem->bufsize, f);
-			if (str.size == 0) {
-				if (feof(f)) /* XXX using S_EOF is unclear */
-					goto out; /* done with file */
-				else if (ferror(f))
-					die(errno, inpath); /* input error */
-				else
-					assert(0 == 1); /* can't be */
-			}
+		const size_t orig_size = \
+			retrieve(&str, f, buf->data, buf->size);
 
-			debug_print("%d bytes read", str.size);
+		const int indic = _count_A(&z, &str);
+		assert(indic == IE_DONE || indic == IE_CONT);
 
-			str.type = S_CHUNK;
-			str.data = mem->buf;
-		}
+		debug_print("%s:%ld: IE_%s (z = %d)", inpath,
+			    (unsigned long) filepos,
+			    indic == IE_DONE ? "DONE" : "CONT", z);
 
-		switch (_parse_tag_id(&str, &filepos)) {
-		case -2:
-			die(0, "%s:%d: %s", inpath, filepos, str.data);
+		if (str.size == orig_size && indic == IE_CONT)
+			die("Iteratee has consumed nothing, but asks for"
+			    " more.\nAborting to prevent an endless loop.");
 
-		case -1:
-			UNDEFINED;
+		filepos += orig_size - str.size;
 
-		default:
-			debug_print("_parse_tag_id succeeded");
-			goto out;
-		}
+		if (indic == IE_DONE)
+			break;
 	}
+	debug_print("%s contains %d 'A' characters", inpath, z);
 
-out:
 	return streq(inpath, "-") ? 0 : fclose(f);
 }
 
 int
 main(int argc, char **argv)
 {
-	struct MemBuf mem = { NULL, 0 };
+	struct MemBuf buf = { NULL, 0 };
 
 	int rv = 0;
 	if (argc == 1) {
-		rv = process("-", &mem);
+		rv = traverse("-", &buf);
 	} else {
 		int i;
 		for (i = 1; i < argc; i++)
-			rv |= process(argv[i], &mem);
+			rv |= traverse(argv[i], &buf);
 	}
 
-	free(mem.buf);
+	free(buf.data);
 	return -rv;
 }
