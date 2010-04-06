@@ -68,7 +68,12 @@ adjust_buffer(FILE *f, struct MemBuf *buf)
 		}
 		const unsigned long outsize = st.st_blksize;
 
+#ifdef DEBUG
+#  warning "Using buffer of size 5 for tests"
+		buf->size = 5;
+#else
 		buf->size = MAX(insize, outsize);
+#endif
 		debug_print("adjust_buffer: realloc(%p, %ld)", buf->data,
 			    (unsigned long) buf->size);
 		buf->data = xrealloc(buf->data, buf->size);
@@ -125,7 +130,9 @@ retrieve(struct Stream *str, FILE *input, unsigned char *buf, size_t bufsize)
 	assert(str->data + str->size <= buf + bufsize);
 
 	if (str->size != 0 && str->data != buf) {
-		/* Move the remains of old chunk to start of `buf'. */
+		debug_print("retrieve: moving %d remaining bytes to"
+			    " the start of buffer", str->size);
+		/* Move the remains of old chunk to the start of `buf'. */
 		memmove(buf, str->data, str->size);
 	}
 
@@ -141,13 +148,14 @@ retrieve(struct Stream *str, FILE *input, unsigned char *buf, size_t bufsize)
 		}
 
 		str->type = S_EOF;
-		str->size = 0; /* Yes, even for error messages. */
+		str->size = 0; /* `size' is 0 for error messages (by design) */
 	} else {
 		str->type = S_CHUNK;
 		str->data = buf;
 		str->size += n;
 	}
 
+	debug_print("retrieve: %d bytes read", str->size);
 	return str->size;
 }
 
@@ -157,52 +165,101 @@ retrieve(struct Stream *str, FILE *input, unsigned char *buf, size_t bufsize)
 
 enum { IE_CONT, IE_DONE };
 
+#if 0 /*XXX*/
 static int
 _count_A(unsigned int *z, struct Stream *str)
 {
-	switch (str->type) {
-	case S_CHUNK:
-		for (; str->size > 0; ++str->data, --str->size) {
-			if (*str->data == 'A')
-				++(*z);
-		}
-		return IE_CONT;
+	assert(str->type == S_CHUNK || str->type == S_EOF);
 
-	case S_EOF:
+	if (str->type == S_EOF)
 		return IE_DONE;
 
-	default:
-		assert(0 == 1);
+	for (; str->size > 0; ++str->data, --str->size) {
+		if (*str->data == 'A')
+			++(*z);
 	}
-}
-
-#if 0 /*XXX*/
-static int
-_parse_tag_id(struct Stream *str, size_t *filepos)
-{
-	if (str->type == S_EOF)
-		return (str->data == NULL) ? -1 : -2;
-
-	if (str->size == 0)
-		return -1;
-	unsigned char c = *str->data;
-	_shift(1, str, filepos);
-
-	putchar('(');
-
-	/* Tag class:  Universal | Application | Context-specific | Private */
-	putchar("uacp"[(c & 0xc0) >> 6]);
-
-	if ((c & 0x1f) == 0x1f)
-		UNDEFINED; /* tag number > 30 */
-	else
-		printf("%d ", c & 0x1f);
-
-	puts(c & 0x20 ? "<XXX_constructed>)" : "<XXX_primitive>)");
-
-	return 0;
+	return IE_CONT;
 }
 #endif /*XXX*/
+
+struct TagParsingState {
+	/* ``Continuation'': the point in `_tag' to continue execution from. */
+	int cont;
+
+	/* First byte of encoding (a.k.a. leading identifier octet). */
+	unsigned char b0;
+
+	unsigned int tagnum; /* Tag number. */
+};
+
+static int
+_tag(struct TagParsingState *z, struct Stream *str)
+{
+	assert(str->type == S_CHUNK || str->type == S_EOF);
+
+	switch (z->cont) {
+	case 0:
+		if (str->type == S_EOF)
+			return IE_DONE;
+
+		/* XXX Should we use `head' iteratee here? */
+		if (str->size == 0)
+			return IE_CONT;
+		z->b0 = *str->data;
+		++str->data;
+		--str->size;
+
+		putchar('(');
+
+		/* Tag class:
+		 * Universal | Application | Context-specific | Private */
+		putchar("uacp"[(z->b0 & 0xc0) >> 6]);
+
+		if ((z->tagnum = z->b0 & 0x1f) == 0x1f)
+			z->tagnum = 0;
+		else
+			goto print_tagnum;
+
+	case 1: /* Tag number > 30 */
+		for (; str->size > 0 && *str->data & 0x80;
+		     ++str->data, --str->size)
+			z->tagnum = (z->tagnum << 7) | (*str->data & 0x7f);
+
+		if (str->size == 0) {
+			z->cont = *str->data & 0x80 ? 1 : 2;
+			return IE_CONT;
+		}
+
+	case 2: /* Tag number > 30, continued */
+		z->tagnum = (z->tagnum << 7) | (*str->data & 0x7f);
+		++str->data;
+		--str->size;
+
+print_tagnum:
+		printf("%d ", z->tagnum);
+
+		if ((z->b0 & 0x20) == 0) {
+			/* Primitive encoding */
+			puts("<XXX primitive>)");
+			/* UNDEFINED; */
+		} else {
+			/* Constructed encoding */
+			puts("<XXX constructed>)");
+			/* UNDEFINED; */
+		}
+
+		break;
+
+	default:
+		debug_print("**ERROR** _tag: unexpected continuation: %d",
+			    z->cont);
+		assert(0 == 1);
+		return -1;
+	}
+
+	z->cont = 0;
+	return IE_DONE;
+}
 
 /* ---------------------------------------------------------------------
  * Enumerator
@@ -228,17 +285,18 @@ traverse(const char *inpath, struct MemBuf *buf)
 
 	struct Stream str = { S_CHUNK, buf->data, 0 };
 
-	unsigned int z = 0; /* XXX sum of 'A' characters */
+	struct TagParsingState z = { 0, 0, 0 };
 	for (;;) {
 		const size_t orig_size = \
 			retrieve(&str, f, buf->data, buf->size);
 
-		const int indic = _count_A(&z, &str);
+		const int indic = _tag(&z, &str);
 		assert(indic == IE_DONE || indic == IE_CONT);
 
-		debug_print("%s:%ld: IE_%s (z = %d)", inpath,
+		debug_print("%s:%ld: IE_%s; z = {%d, 0x%02x, %d}", inpath,
 			    (unsigned long) filepos,
-			    indic == IE_DONE ? "DONE" : "CONT", z);
+			    indic == IE_DONE ? "DONE" : "CONT",
+			    z.cont, z.b0, z.tagnum);
 
 		if (str.size == orig_size && indic == IE_CONT)
 			die("Iteratee has consumed nothing, but asks for"
@@ -249,7 +307,7 @@ traverse(const char *inpath, struct MemBuf *buf)
 		if (indic == IE_DONE)
 			break;
 	}
-	debug_print("%s contains %d 'A' characters", inpath, z);
+	debug_print("XXX z = {%d, 0x%02x, %d}", z.cont, z.b0, z.tagnum);
 
 	return streq(inpath, "-") ? 0 : fclose(f);
 }
