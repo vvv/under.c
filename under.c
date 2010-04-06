@@ -165,31 +165,16 @@ retrieve(struct Stream *str, FILE *input, unsigned char *buf, size_t bufsize)
 
 enum { IE_CONT, IE_DONE };
 
-#if 0 /*XXX*/
-static int
-_count_A(unsigned int *z, struct Stream *str)
-{
-	assert(str->type == S_CHUNK || str->type == S_EOF);
-
-	if (str->type == S_EOF)
-		return IE_DONE;
-
-	for (; str->size > 0; ++str->data, --str->size) {
-		if (*str->data == 'A')
-			++(*z);
-	}
-	return IE_CONT;
-}
-#endif /*XXX*/
-
 struct TagParsingState {
 	/* ``Continuation'': the point in `_tag' to continue execution from. */
 	int cont;
 
-	/* First byte of encoding (a.k.a. leading identifier octet). */
-	unsigned char b0;
+	/* Whether encoding is constructed. */
+	unsigned char cons_p;
 
 	unsigned int tagnum; /* Tag number. */
+	size_t nbytes_len; /* Number of length octets (excluding initial). */
+	size_t len; /* Tag length. */
 };
 
 static int
@@ -198,29 +183,36 @@ _tag(struct TagParsingState *z, struct Stream *str)
 	assert(str->type == S_CHUNK || str->type == S_EOF);
 
 	switch (z->cont) {
-	case 0:
+	case 0: /* Identifier octet(s) -- cases 0..2 */
 		if (str->type == S_EOF)
 			return IE_DONE;
 
-		/* XXX Should we use `head' iteratee here? */
 		if (str->size == 0)
 			return IE_CONT;
-		z->b0 = *str->data;
-		++str->data;
-		--str->size;
+		{
+			const unsigned char c = *str->data;
+			++str->data;
+			--str->size;
 
-		putchar('(');
+			putchar('(');
 
-		/* Tag class:
-		 * Universal | Application | Context-specific | Private */
-		putchar("uacp"[(z->b0 & 0xc0) >> 6]);
+			/*
+			 * Tag class:
+			 * Universal | Application | Context-specific | Private
+			 */
+			putchar("uacp"[(c & 0xc0) >> 6]);
 
-		if ((z->tagnum = z->b0 & 0x1f) == 0x1f)
-			z->tagnum = 0;
-		else
-			goto print_tagnum;
+			z->cons_p = (c & 0x20) != 0;
 
-	case 1: /* Tag number > 30 */
+			if ((c & 0x1f) == 0x1f) {
+				z->tagnum = 0; /* tag number > 30 */
+			} else {
+				z->tagnum = c & 0x1f;
+				goto tagnum_done;
+			}
+		}
+
+	case 1: /* Tag number > 30 (a.k.a. high tag number) */
 		for (; str->size > 0 && *str->data & 0x80;
 		     ++str->data, --str->size)
 			z->tagnum = (z->tagnum << 7) | (*str->data & 0x7f);
@@ -235,20 +227,71 @@ _tag(struct TagParsingState *z, struct Stream *str)
 		++str->data;
 		--str->size;
 
-print_tagnum:
+tagnum_done:
 		printf("%d ", z->tagnum);
 
-		if ((z->b0 & 0x20) == 0) {
-			/* Primitive encoding */
-			puts("<XXX primitive>)");
-			/* UNDEFINED; */
-		} else {
-			/* Constructed encoding */
-			puts("<XXX constructed>)");
-			/* UNDEFINED; */
+	case 3: /* Length octet(s) -- cases 3..4 */
+		if (str->size == 0) {
+			z->cont = 3;
+			return IE_CONT;
 		}
 
-		break;
+		{
+			/* XXX `head' iteratee is needed */
+			const unsigned char c = *str->data;
+			++str->data;
+			--str->size;
+
+			if (c == 0xff) {
+				UNDEFINED;
+				/* set_error_XXX("length encoding is invalid\n" */
+				/* 	      "\t[ITU-T X.690, 8.1.3.5-c]"); */
+				/* return IE_CONT; */
+			}
+
+			if (c & 0x80) {
+				z->nbytes_len = c & 0x7f;
+				z->len = 0;
+			} else {
+				z->len = c;
+				goto len_done;
+			}
+		}
+
+	case 4:
+		for (; str->size > 0 && z->nbytes_len > 0;
+		     --z->nbytes_len, ++str->data, --str->size)
+			z->len = (z->len << 8) | *str->data;
+
+		if (z->nbytes_len > 0) {
+			z->cont = 4;
+			return IE_CONT;
+		}
+
+len_done:
+		printf("<l=%d>", z->len);
+
+		if (z->cons_p) {
+			/* Constructed encoding */
+			fputs("<XXX constructed> \"", stdout);
+		} else {
+			/* Primitive encoding */
+			fputs("<XXX primitive> \"", stdout);
+		}
+
+	case 5: /* Contents octet(s) */
+		for (; str->size > 0 && z->len > 0;
+		     --z->len, ++str->data, --str->size)
+			printf(" %02x", *str->data);
+
+		if (z->len > 0) {
+			z->cont = 5;
+			return IE_CONT;
+		}
+
+		puts("\")");
+
+		break; /* done with tag */
 
 	default:
 		debug_print("**ERROR** _tag: unexpected continuation: %d",
@@ -259,6 +302,26 @@ print_tagnum:
 
 	z->cont = 0;
 	return IE_DONE;
+}
+
+static int
+_tags(struct TagParsingState *z, struct Stream *str)
+{
+	assert(str->type == S_CHUNK || str->type == S_EOF);
+
+	int indic;
+	do {
+		indic = _tag(z, str);
+		assert(indic == IE_DONE || indic == IE_CONT);
+
+		debug_print("IE_%s {cont=%d, cons_p=%d, tagnum=%d,"
+			    " nbytes_len=%d, len=%d}",
+			    indic == IE_DONE ? "DONE" : "CONT",
+			    z->cont, z->cons_p, z->tagnum, z->nbytes_len,
+			    z->len);
+	} while (indic == IE_DONE && str->type == S_CHUNK);
+
+	return indic;
 }
 
 /* ---------------------------------------------------------------------
@@ -285,18 +348,13 @@ traverse(const char *inpath, struct MemBuf *buf)
 
 	struct Stream str = { S_CHUNK, buf->data, 0 };
 
-	struct TagParsingState z = { 0, 0, 0 };
+	struct TagParsingState z = {0,0,0,0,0};
 	for (;;) {
 		const size_t orig_size = \
 			retrieve(&str, f, buf->data, buf->size);
 
-		const int indic = _tag(&z, &str);
+		const int indic = _tags(&z, &str);
 		assert(indic == IE_DONE || indic == IE_CONT);
-
-		debug_print("%s:%ld: IE_%s; z = {%d, 0x%02x, %d}", inpath,
-			    (unsigned long) filepos,
-			    indic == IE_DONE ? "DONE" : "CONT",
-			    z.cont, z.b0, z.tagnum);
 
 		if (str.size == orig_size && indic == IE_CONT)
 			die("Iteratee has consumed nothing, but asks for"
@@ -307,7 +365,6 @@ traverse(const char *inpath, struct MemBuf *buf)
 		if (indic == IE_DONE)
 			break;
 	}
-	debug_print("XXX z = {%d, 0x%02x, %d}", z.cont, z.b0, z.tagnum);
 
 	return streq(inpath, "-") ? 0 : fclose(f);
 }
