@@ -42,8 +42,8 @@ xrealloc(void *ptr, size_t sz)
 }
 
 /* Memory buffer. */
-struct MemBuf { /* XXX Let `unsigned' go? */
-	unsigned char *data; /* pointer to malloc(3)-ated memory */
+struct MemBuf {
+	char *data; /* pointer to malloc(3)-ated memory */
 	size_t size; /* size of buffer */
 };
 
@@ -76,7 +76,7 @@ adjust_buffer(FILE *f, struct MemBuf *buf)
 #  warning "Using buffer of size 5 for tests"
 		buf->size = 5;
 #endif
-		debug_print("adjust_buffer: realloc(%p, %ld)", buf->data,
+		debug_print("adjust_buffer: realloc(%p, %lu)", buf->data,
 			    (unsigned long) buf->size);
 		buf->data = xrealloc(buf->data, buf->size);
 	}
@@ -127,7 +127,7 @@ struct Stream {
 	 *
 	 * Meaningless for S_CHUNK.
 	 */
-	const unsigned char *errmsg;
+	const char *errmsg;
 };
 
 static void
@@ -136,15 +136,14 @@ set_error(struct Stream *stream, const char *format, ...)
 	va_list ap;
 	va_start(ap, format);
 
-	const size_t nchars = vsnprintf((char *) errbuf.data, errbuf.size,
-					format, ap);
+	const size_t nchars = vsnprintf(errbuf.data, errbuf.size, format, ap);
 	if (nchars >= errbuf.size) {
 		/* Not enough space.  Reallocate buffer .. */
 		errbuf.size = nchars + 1;
 		errbuf.data = xrealloc(errbuf.data, errbuf.size);
 
 		 /* .. and try again. */
-		vsnprintf((char *) errbuf.data, errbuf.size, format, ap);
+		vsnprintf(errbuf.data, errbuf.size, format, ap);
 	}
 
 	va_end(ap);
@@ -154,22 +153,23 @@ set_error(struct Stream *stream, const char *format, ...)
 }
 
 static size_t
-retrieve(struct Stream *str, FILE *input, unsigned char *buf, size_t bufsize)
+retrieve(struct Stream *str, FILE *input, struct MemBuf *buf)
 {
 	assert(str->type == S_CHUNK); /* XXX And what about S_EOF? */
 
 	/* A chunk must be contained in `buf'. */
-	assert(buf <= str->data);
-	assert(str->data + str->size <= buf + bufsize);
+	assert(buf->data <= (char *) str->data);
+	assert((char *) str->data + str->size <= buf->data + buf->size);
 
-	if (str->size != 0 && str->data != buf) {
-		debug_print("retrieve: %d remaining bytes moved to the start"
-			    " of buffer", str->size);
+	if (str->size != 0 && (char *) str->data != buf->data) {
+		debug_print("retrieve: %lu remaining bytes moved to the start"
+			    " of buffer", (unsigned long) str->size);
 		/* Move the remains of old chunk to the start of `buf'. */
-		memmove(buf, str->data, str->size);
+		memmove(buf->data, str->data, str->size);
 	}
 
-	const size_t n = fread(buf + str->size, 1, bufsize - str->size, input);
+	const size_t n = fread(buf->data + str->size, 1,
+			       buf->size - str->size, input);
 	if (n == 0) {
 		if (feof(input)) {
 			debug_print("retrieve: EOF");
@@ -185,9 +185,9 @@ retrieve(struct Stream *str, FILE *input, unsigned char *buf, size_t bufsize)
 		return 0;
 	}
 
-	debug_print("retrieve: %d bytes read", n);
+	debug_print("retrieve: %lu bytes read", (unsigned long) n);
 	str->type = S_CHUNK;
-	str->data = buf;
+	str->data = (unsigned char *) buf->data;
 	str->size += n;
 
 	return str->size;
@@ -267,11 +267,11 @@ _tag(struct TagParsingState *z, struct Stream *str)
 
 tagnum_done:
 		if (z->tagnum > 1000) {
-			set_error(str, "XXX Tag number is too big: %d",
+			set_error(str, "XXX Tag number is too big: %u",
 				  z->tagnum);
 			return IE_CONT;
 		}
-		printf("%d ", z->tagnum);
+		printf("%u ", z->tagnum);
 
 	case 2: /* Initial length octet */
 		if (str->size == 0)
@@ -307,7 +307,7 @@ tagnum_done:
 			return _tag__cont(3, z);
 
 len_done:
-		printf("<l=%d>", z->len);
+		printf("<l=%lu>", (unsigned long) z->len);
 
 		if (z->cons_p) {
 			/* Constructed encoding */
@@ -350,11 +350,12 @@ _tags(struct TagParsingState *z, struct Stream *str)
 		indic = _tag(z, str);
 		assert(indic == IE_DONE || indic == IE_CONT);
 
-		debug_print("IE_%s {cont=%d, cons_p=%d, tagnum=%d,"
-			    " nbytes_len=%d, len=%d}",
+		debug_print("IE_%s {cont=%d, cons_p=%d, tagnum=%u,"
+			    " nbytes_len=%lu, len=%lu}",
 			    indic == IE_DONE ? "DONE" : "CONT",
-			    z->cont, z->cons_p, z->tagnum, z->nbytes_len,
-			    z->len);
+			    z->cont, z->cons_p, z->tagnum,
+			    (unsigned long) z->nbytes_len,
+			    (unsigned long) z->len);
 	} while (indic == IE_DONE && str->type == S_CHUNK);
 
 	return indic;
@@ -386,12 +387,11 @@ traverse(const char *inpath, struct MemBuf *buf)
 	size_t filepos = 0;
 
 	int retval = 0;
-	struct Stream str = { S_CHUNK, buf->data, 0, NULL };
+	struct Stream str = { S_CHUNK, (unsigned char *) buf->data, 0, NULL };
 
 	struct TagParsingState z = {0,0,0,0,0};
 	for (;;) {
-		const size_t orig_size = \
-			retrieve(&str, f, buf->data, buf->size);
+		const size_t orig_size = retrieve(&str, f, buf);
 		assert(str.type == S_CHUNK || (str.type == S_EOF &&
 					       orig_size == 0));
 
@@ -426,9 +426,9 @@ traverse(const char *inpath, struct MemBuf *buf)
 			 * Iteratee is brain-damaged and should not be used,
 			 * thus die.
 			 */
-			die("%s:%d: Iteratee has consumed nothing, but wants"
+			die("%s:%lu: Iteratee has consumed nothing, but wants"
 			    " more.\n\tAborting to prevent an endless"
-			    " loop.", inpath, filepos);
+			    " loop.", inpath, (unsigned long) filepos);
 		}
 	}
 
