@@ -5,6 +5,7 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <assert.h>
+#include <stdarg.h>
 
 #ifndef MAX
 #  define MAX(x, y) ((x) > (y) ? (x) : (y))
@@ -41,10 +42,12 @@ xrealloc(void *ptr, size_t sz)
 }
 
 /* Memory buffer. */
-struct MemBuf {
+struct MemBuf { /* XXX Let `unsigned' go? */
 	unsigned char *data; /* pointer to malloc(3)-ated memory */
 	size_t size; /* size of buffer */
 };
+
+static struct MemBuf errbuf = { NULL, 0 };
 
 /*
  * Adjust buffer to file's blocksize.
@@ -68,11 +71,10 @@ adjust_buffer(FILE *f, struct MemBuf *buf)
 		}
 		const unsigned long outsize = st.st_blksize;
 
+		buf->size = MAX(insize, outsize);
 #ifdef DEBUG
 #  warning "Using buffer of size 5 for tests"
 		buf->size = 5;
-#else
-		buf->size = MAX(insize, outsize);
 #endif
 		debug_print("adjust_buffer: realloc(%p, %ld)", buf->data,
 			    (unsigned long) buf->size);
@@ -98,27 +100,58 @@ struct Stream {
 	} type;
 
 	/*
-	 * If `type' is S_EOF, `dat' is either NULL (EOF reached
-	 * without error) or points to a null-terminated error message.
+	 * Pointer to chunk data (S_CHUNK only).
 	 *
-	 * If `type' is S_CHUNK, `dat' points to chunk data, and
-	 * `size' is equal to the number of bytes in chunk.
+	 * Meaningless for S_EOF.
 	 */
 	const unsigned char *data;
 
 	/*
-	 * Size of chunk.
+	 * Size of chunk (S_CHUNK only).
 	 *
 	 * S_CHUNK: Zero length signifies a stream with no currently
 	 * available data but which is still continuing. A stream
 	 * processor should, informally speaking, ``suspend itself''
 	 * and wait for more data to arrive.
 	 *
-	 * `size' is always 0 for S_EOF, even if `data' points to an
-	 * error message.
+	 * Meaningless for S_EOF.
 	 */
 	size_t size;
+
+	/*
+	 * Error message (S_EOF only).
+	 *
+	 * S_EOF: NULL if EOF was reached without error; otherwise
+	 * `errmsg' is a pointer to an error message (or a control
+	 * message in general).
+	 *
+	 * Meaningless for S_CHUNK.
+	 */
+	const unsigned char *errmsg;
 };
+
+static void
+set_error(struct Stream *stream, const char *format, ...)
+{
+	va_list ap;
+	va_start(ap, format);
+
+	const size_t nchars = vsnprintf((char *) errbuf.data, errbuf.size,
+					format, ap);
+	if (nchars >= errbuf.size) {
+		/* Not enough space.  Reallocate buffer .. */
+		errbuf.size = nchars + 1;
+		errbuf.data = xrealloc(errbuf.data, errbuf.size);
+
+		 /* .. and try again. */
+		vsnprintf((char *) errbuf.data, errbuf.size, format, ap);
+	}
+
+	va_end(ap);
+
+	stream->type = S_EOF;
+	stream->errmsg = errbuf.data;
+}
 
 static size_t
 retrieve(struct Stream *str, FILE *input, unsigned char *buf, size_t bufsize)
@@ -130,8 +163,8 @@ retrieve(struct Stream *str, FILE *input, unsigned char *buf, size_t bufsize)
 	assert(str->data + str->size <= buf + bufsize);
 
 	if (str->size != 0 && str->data != buf) {
-		debug_print("retrieve: moving %d remaining bytes to"
-			    " the start of buffer", str->size);
+		debug_print("retrieve: %d remaining bytes moved to the start"
+			    " of buffer", str->size);
 		/* Move the remains of old chunk to the start of `buf'. */
 		memmove(buf, str->data, str->size);
 	}
@@ -139,23 +172,24 @@ retrieve(struct Stream *str, FILE *input, unsigned char *buf, size_t bufsize)
 	const size_t n = fread(buf + str->size, 1, bufsize - str->size, input);
 	if (n == 0) {
 		if (feof(input)) {
-			str->data = NULL;
+			debug_print("retrieve: EOF");
+			str->type = S_EOF;
+			str->errmsg = NULL;
 		} else if (ferror(input)) {
-			strncpy((char *) buf, strerror(errno), bufsize);
-			str->data = buf;
+			debug_print("retrieve: IO error");
+			set_error(str, strerror(errno));
 		} else {
 			assert(0 == 1);
 		}
 
-		str->type = S_EOF;
-		str->size = 0; /* `size' is 0 for error messages (by design) */
-	} else {
-		str->type = S_CHUNK;
-		str->data = buf;
-		str->size += n;
+		return 0;
 	}
 
-	debug_print("retrieve: %d bytes read", str->size);
+	debug_print("retrieve: %d bytes read", n);
+	str->type = S_CHUNK;
+	str->data = buf;
+	str->size += n;
+
 	return str->size;
 }
 
@@ -176,6 +210,13 @@ struct TagParsingState {
 	size_t nbytes_len; /* Number of length octets (excluding initial). */
 	size_t len; /* Tag length. */
 };
+
+static inline int
+_tag__cont(int mark, struct TagParsingState *z)
+{
+	z->cont = mark;
+	return IE_CONT;
+}
 
 static int
 _tag(struct TagParsingState *z, struct Stream *str)
@@ -212,29 +253,29 @@ _tag(struct TagParsingState *z, struct Stream *str)
 			}
 		}
 
-	case 1: /* Tag number > 30 (a.k.a. high tag number) */
+	case 1: /* Tag number > 30 (a.k.a. ``high'' tag number) */
 		for (; str->size > 0 && *str->data & 0x80;
 		     ++str->data, --str->size)
 			z->tagnum = (z->tagnum << 7) | (*str->data & 0x7f);
 
-		if (str->size == 0) {
-			z->cont = *str->data & 0x80 ? 1 : 2;
-			return IE_CONT;
-		}
+		if (str->size == 0)
+			return _tag__cont(1, z);
 
-	case 2: /* Tag number > 30, continued */
 		z->tagnum = (z->tagnum << 7) | (*str->data & 0x7f);
 		++str->data;
 		--str->size;
 
 tagnum_done:
-		printf("%d ", z->tagnum);
-
-	case 3: /* Length octet(s) -- cases 3..4 */
-		if (str->size == 0) {
-			z->cont = 3;
+		if (z->tagnum > 1000) {
+			set_error(str, "XXX Tag number is too big: %d",
+				  z->tagnum);
 			return IE_CONT;
 		}
+		printf("%d ", z->tagnum);
+
+	case 2: /* Initial length octet */
+		if (str->size == 0)
+			return _tag__cont(2, z);
 
 		{
 			/* XXX `head' iteratee is needed */
@@ -243,10 +284,9 @@ tagnum_done:
 			--str->size;
 
 			if (c == 0xff) {
-				UNDEFINED;
-				/* set_error_XXX("length encoding is invalid\n" */
-				/* 	      "\t[ITU-T X.690, 8.1.3.5-c]"); */
-				/* return IE_CONT; */
+				set_error(str, "Length encoding is invalid\n"
+					  "\t[ITU-T X.690, 8.1.3.5-c]");
+				return IE_CONT;
 			}
 
 			if (c & 0x80) {
@@ -258,15 +298,13 @@ tagnum_done:
 			}
 		}
 
-	case 4:
+	case 3: /* Subsequent length octet(s) */
 		for (; str->size > 0 && z->nbytes_len > 0;
 		     --z->nbytes_len, ++str->data, --str->size)
 			z->len = (z->len << 8) | *str->data;
 
-		if (z->nbytes_len > 0) {
-			z->cont = 4;
-			return IE_CONT;
-		}
+		if (z->nbytes_len > 0)
+			return _tag__cont(3, z);
 
 len_done:
 		printf("<l=%d>", z->len);
@@ -279,15 +317,13 @@ len_done:
 			fputs("<XXX primitive> \"", stdout);
 		}
 
-	case 5: /* Contents octet(s) */
+	case 4: /* Contents octet(s) */
 		for (; str->size > 0 && z->len > 0;
 		     --z->len, ++str->data, --str->size)
 			printf(" %02x", *str->data);
 
-		if (z->len > 0) {
-			z->cont = 5;
-			return IE_CONT;
-		}
+		if (z->len > 0)
+			return _tag__cont(4, z);
 
 		puts("\")");
 
@@ -328,6 +364,9 @@ _tags(struct TagParsingState *z, struct Stream *str)
  * Enumerator
  */
 
+/*
+ * Return value: 0 -- successful completion, -1 -- error.
+ */
 static int
 traverse(const char *inpath, struct MemBuf *buf)
 {
@@ -346,27 +385,57 @@ traverse(const char *inpath, struct MemBuf *buf)
 	}
 	size_t filepos = 0;
 
-	struct Stream str = { S_CHUNK, buf->data, 0 };
+	int retval = 0;
+	struct Stream str = { S_CHUNK, buf->data, 0, NULL };
 
 	struct TagParsingState z = {0,0,0,0,0};
 	for (;;) {
 		const size_t orig_size = \
 			retrieve(&str, f, buf->data, buf->size);
+		assert(str.type == S_CHUNK || (str.type == S_EOF &&
+					       orig_size == 0));
+
+		if (str.type == S_EOF) {
+			if (str.errmsg != NULL) {
+				error_at_line(0, 0, inpath, filepos,
+					      "%s", str.errmsg);
+				retval = -1;
+			} else if (z.cont != 0) {
+				error_at_line(0, 0, inpath, filepos,
+					      "Unexpected EOF");
+				retval = -1;
+			}
+			break;
+		}
 
 		const int indic = _tags(&z, &str);
 		assert(indic == IE_DONE || indic == IE_CONT);
-
-		if (str.size == orig_size && indic == IE_CONT)
-			die("Iteratee has consumed nothing, but asks for"
-			    " more.\nAborting to prevent an endless loop.");
 
 		filepos += orig_size - str.size;
 
 		if (indic == IE_DONE)
 			break;
+
+		/* IE_CONT */
+		if (str.errmsg != NULL) {
+			error_at_line(0, 0, inpath, filepos, "%s", str.errmsg);
+			retval = -1;
+			break;
+		} else if (str.size == orig_size) {
+			/*
+			 * Iteratee is brain-damaged and should not be used,
+			 * thus die.
+			 */
+			die("%s:%d: Iteratee has consumed nothing, but wants"
+			    " more.\n\tAborting to prevent an endless"
+			    " loop.", inpath, filepos);
+		}
 	}
 
-	return streq(inpath, "-") ? 0 : fclose(f);
+	if (!streq(inpath, "-"))
+		retval |= fclose(f);
+
+	return retval;
 }
 
 int
@@ -384,5 +453,6 @@ main(int argc, char **argv)
 	}
 
 	free(buf.data);
+	free(errbuf.data);
 	return -rv;
 }
