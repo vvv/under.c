@@ -133,6 +133,9 @@ struct Stream {
 static void
 set_error(struct Stream *stream, const char *format, ...)
 {
+	if (stream->type == S_EOF && stream->errmsg != NULL)
+		return; /* keep the original error message */
+
 	va_list ap;
 	va_start(ap, format);
 
@@ -211,6 +214,29 @@ struct TagParsingState {
 	size_t len; /* Tag length. */
 };
 
+/*
+ * Attempt to read the next element of the stream and store it in `*c'.
+ * Set an error if the stream is terminated.
+ */
+static int
+head(unsigned char *c, struct Stream *str)
+{
+	if (str->type == S_EOF) {
+		set_error(str, "head: EOF");
+		return IE_CONT;
+	}
+
+	assert(str->type == S_CHUNK);
+
+	if (str->size == 0)
+		return IE_CONT;
+
+	*c = *str->data;
+	++str->data;
+	--str->size;
+	return IE_DONE;
+}
+
 static inline int
 _tag__cont(int mark, struct TagParsingState *z)
 {
@@ -222,35 +248,30 @@ static int
 _tag(struct TagParsingState *z, struct Stream *str)
 {
 	assert(str->type == S_CHUNK || str->type == S_EOF);
+	unsigned char c = 0;
 
 	switch (z->cont) {
 	case 0: /* Identifier octet(s) -- cases 0..2 */
 		if (str->type == S_EOF)
 			return IE_DONE;
 
-		if (str->size == 0)
+		if (head(&c, str) == IE_CONT)
 			return IE_CONT;
-		{
-			const unsigned char c = *str->data;
-			++str->data;
-			--str->size;
+		putchar('(');
 
-			putchar('(');
+		/*
+		 * Tag class:
+		 * Universal | Application | Context-specific | Private
+		 */
+		putchar("uacp"[(c & 0xc0) >> 6]);
 
-			/*
-			 * Tag class:
-			 * Universal | Application | Context-specific | Private
-			 */
-			putchar("uacp"[(c & 0xc0) >> 6]);
+		z->cons_p = (c & 0x20) != 0;
 
-			z->cons_p = (c & 0x20) != 0;
-
-			if ((c & 0x1f) == 0x1f) {
-				z->tagnum = 0; /* tag number > 30 */
-			} else {
-				z->tagnum = c & 0x1f;
-				goto tagnum_done;
-			}
+		if ((c & 0x1f) == 0x1f) {
+			z->tagnum = 0; /* tag number > 30 */
+		} else {
+			z->tagnum = c & 0x1f;
+			goto tagnum_done;
 		}
 
 	case 1: /* Tag number > 30 (a.k.a. ``high'' tag number) */
@@ -258,12 +279,9 @@ _tag(struct TagParsingState *z, struct Stream *str)
 		     ++str->data, --str->size)
 			z->tagnum = (z->tagnum << 7) | (*str->data & 0x7f);
 
-		if (str->size == 0)
+		if (head(&c, str) == IE_CONT)
 			return _tag__cont(1, z);
-
-		z->tagnum = (z->tagnum << 7) | (*str->data & 0x7f);
-		++str->data;
-		--str->size;
+		z->tagnum = (z->tagnum << 7) | (c & 0x7f);
 
 tagnum_done:
 		if (z->tagnum > 1000) {
@@ -274,28 +292,21 @@ tagnum_done:
 		printf("%u ", z->tagnum);
 
 	case 2: /* Initial length octet */
-		if (str->size == 0)
+		if (head(&c, str) == IE_CONT)
 			return _tag__cont(2, z);
 
-		{
-			/* XXX `head' iteratee is needed */
-			const unsigned char c = *str->data;
-			++str->data;
-			--str->size;
+		if (c == 0xff) {
+			set_error(str, "Length encoding is invalid\n"
+				  "\t[ITU-T X.690, 8.1.3.5-c]");
+			return IE_CONT;
+		}
 
-			if (c == 0xff) {
-				set_error(str, "Length encoding is invalid\n"
-					  "\t[ITU-T X.690, 8.1.3.5-c]");
-				return IE_CONT;
-			}
-
-			if (c & 0x80) {
-				z->nbytes_len = c & 0x7f;
-				z->len = 0;
-			} else {
-				z->len = c;
-				goto len_done;
-			}
+		if (c & 0x80) {
+			z->nbytes_len = c & 0x7f; /* long form */
+			z->len = 0;
+		} else {
+			z->len = c; /* short form */
+			goto len_done;
 		}
 
 	case 3: /* Subsequent length octet(s) */
@@ -330,7 +341,7 @@ len_done:
 		break; /* done with tag */
 
 	default:
-		debug_print("**ERROR** _tag: unexpected continuation: %d",
+		debug_print("**ERROR** _tag: Unknown continuation: %d",
 			    z->cont);
 		assert(0 == 1);
 		return -1;
