@@ -202,18 +202,6 @@ retrieve(struct Stream *str, FILE *input, struct MemBuf *buf)
 
 enum { IE_CONT, IE_DONE };
 
-struct TagParsingState {
-	/* ``Continuation'': the point in `_tag' to continue execution from. */
-	int cont;
-
-	/* Whether encoding is constructed. */
-	unsigned char cons_p;
-
-	unsigned int tagnum; /* Tag number. */
-	size_t nbytes_len; /* Number of length octets (excluding initial). */
-	size_t len; /* Tag length. */
-};
-
 /*
  * Attempt to read the next element of the stream and store it in `*c'.
  * Set an error if the stream is terminated.
@@ -236,6 +224,16 @@ head(unsigned char *c, struct Stream *str)
 	--str->size;
 	return IE_DONE;
 }
+
+struct TagParsingState {
+	/* ``Continuation'': the point in `_tag' to continue execution from. */
+	int cont;
+
+	unsigned char cons_p; /* Whether encoding is constructed. */
+	unsigned int tagnum; /* Tag number. */
+	size_t nbytes_len; /* Number of length octets (excluding initial). */
+	size_t clen; /* Length of tag's contents. */
+};
 
 static inline int
 _tag__cont(int mark, struct TagParsingState *z)
@@ -303,22 +301,22 @@ tagnum_done:
 
 		if (c & 0x80) {
 			z->nbytes_len = c & 0x7f; /* long form */
-			z->len = 0;
+			z->clen = 0;
 		} else {
-			z->len = c; /* short form */
-			goto len_done;
+			z->clen = c; /* short form */
+			goto clen_done;
 		}
 
 	case 3: /* Subsequent length octet(s) */
 		for (; str->size > 0 && z->nbytes_len > 0;
 		     --z->nbytes_len, ++str->data, --str->size)
-			z->len = (z->len << 8) | *str->data;
+			z->clen = (z->clen << 8) | *str->data;
 
 		if (z->nbytes_len > 0)
 			return _tag__cont(3, z);
 
-len_done:
-		printf("<l=%lu>", (unsigned long) z->len);
+clen_done:
+		printf("<l=%lu>", (unsigned long) z->clen);
 
 		if (z->cons_p) {
 			/* Constructed encoding */
@@ -329,11 +327,11 @@ len_done:
 		}
 
 	case 4: /* Contents octet(s) */
-		for (; str->size > 0 && z->len > 0;
-		     --z->len, ++str->data, --str->size)
+		for (; str->size > 0 && z->clen > 0;
+		     --z->clen, ++str->data, --str->size)
 			printf(" %02x", *str->data);
 
-		if (z->len > 0)
+		if (z->clen > 0)
 			return _tag__cont(4, z);
 
 		puts("\")");
@@ -362,11 +360,11 @@ _tags(struct TagParsingState *z, struct Stream *str)
 		assert(indic == IE_DONE || indic == IE_CONT);
 
 		debug_print("IE_%s {cont=%d, cons_p=%d, tagnum=%u,"
-			    " nbytes_len=%lu, len=%lu}",
+			    " nbytes_len=%lu, clen=%lu}",
 			    indic == IE_DONE ? "DONE" : "CONT",
 			    z->cont, z->cons_p, z->tagnum,
 			    (unsigned long) z->nbytes_len,
-			    (unsigned long) z->len);
+			    (unsigned long) z->clen);
 	} while (indic == IE_DONE && str->type == S_CHUNK);
 
 	return indic;
@@ -387,12 +385,12 @@ traverse(const char *inpath, struct MemBuf *buf)
 	if (streq(inpath, "-")) {
 		f = stdin;
 	} else if ((f = fopen(inpath, "rb")) == NULL) {
-		error(0, errno, inpath);
+		error(0, errno, "%s", inpath);
 		return -1;
 	}
 
 	if (adjust_buffer(f, buf) < 0) {
-		error(0, errno, inpath);
+		error(0, errno, "%s", inpath);
 		return -1;
 	}
 	size_t filepos = 0;
