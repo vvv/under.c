@@ -1,7 +1,8 @@
 SHELL = /bin/sh
 .PHONY: clean check test
 
-CFLAGS = -g -DDEBUG -Wall -Wextra
+#CPPFLAGS = -DDEBUG
+CFLAGS = -g -Wall -Wextra
 # CFLAGS = -O3 -Wall -Wextra
 
 PROG = under

@@ -258,7 +258,7 @@ tagnum_done:
 				  "XXX Tag number is too big: %u", tagnum);
 			return IE_CONT;
 		}
-		printf("%u ", tagnum);
+		printf("%u", tagnum);
 
 	case 2: /* Initial length octet */
 		cont = 2;
@@ -336,7 +336,7 @@ prim(bool enough, struct Stream *str)
 		assert(0 == 1);
 	}
 
-	puts("\")");
+	putchar('"');
 
 	cont = 0;
 	return IE_DONE;
@@ -465,6 +465,7 @@ traverse(struct Caps *z, struct Stream *master)
 		while (z->caps != NULL && z->caps->value == 0) {
 			stack_pop(&z->caps);
 			--z->depth;
+			putchar(')');
 		}
 		check_caps_invariant(z);
 
@@ -477,11 +478,19 @@ traverse(struct Caps *z, struct Stream *master)
 			stack_push(&z->caps, next_cont.len);
 			++z->depth;
 
-			if (!next_cont.cons_p)
+			if (!next_cont.cons_p) {
 				header_p = false;
+				putchar(' ');
+				continue;
+			}
 		} else {
 			header_p = true;
 		}
+
+		putchar('\n');
+		unsigned int i;
+		for (i = 0; i < z->depth; ++i)
+			fputs("    ", stdout);
 	}
 }
 
