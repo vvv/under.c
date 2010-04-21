@@ -5,7 +5,7 @@ CFLAGS = -g -DDEBUG -Wall -Wextra
 # CFLAGS = -O3 -Wall -Wextra
 
 PROG = under
-SRC = under.c
+SRC = under.c stack.c
 
 $(PROG): $(SRC)
 
