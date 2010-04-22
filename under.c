@@ -191,29 +191,24 @@ head(unsigned char *c, struct Stream *str)
 	return IE_DONE;
 }
 
-/*
- * Attributes of tag contents.
- *
- * Values of this type are filled by `header' iteratee.
- *
- * XXX Replace with `Header' type?
- */
-struct Cont_Attr {
+/* Tag attributes, specified in identifier and length octets. */
+struct Tag_Attr {
+	/* Tag class. */
+	enum { Universal, Application, Context_Specific, Private } tclass;
+
+	unsigned int tagnum; /* Tag number. */
 	bool cons_p; /* Is encoding constructed? */
 	size_t len; /* Length of contents. */
 };
 
 /*
- * Parse tag header: print its representation and get some info about
- * tag contents.
- *
- * XXX TODO  Separate parsing of header from ``side effects'' (printing).
+ * Parse tag header (i.e., identifier and length octets) and store tag
+ * attributes in `*z'.
  */
 static IterV
-header(struct Cont_Attr *dest, struct Stream *str)
+parse_header(struct Tag_Attr *z, struct Stream *str)
 {
 	static int cont = 0; /* Point to continue execution from */
-	static unsigned int tagnum; /* Tag number */
 	static size_t len_sz; /* Number of length octets, excluding initial */
 
 	unsigned char c;
@@ -225,20 +220,14 @@ header(struct Cont_Attr *dest, struct Stream *str)
 
 		if (head(&c, str) == IE_CONT)
 			return IE_CONT;
-		putchar('(');
 
-		/*
-		 * Tag class:
-		 * Universal | Application | Context-specific | Private
-		 */
-		putchar("uacp"[(c & 0xc0) >> 6]);
-
-		dest->cons_p = (c & 0x20) != 0;
+		z->tclass = (c & 0xc0) >> 6;
+		z->cons_p = (c & 0x20) != 0;
 
 		if ((c & 0x1f) == 0x1f) {
-			tagnum = 0; /* tag number > 30 */
+			z->tagnum = 0; /* tag number > 30 */
 		} else {
-			tagnum = c & 0x1f;
+			z->tagnum = c & 0x1f;
 			goto tagnum_done;
 		}
 
@@ -246,19 +235,18 @@ header(struct Cont_Attr *dest, struct Stream *str)
 		cont = 1;
 		for (; str->size > 0 && *str->data & 0x80;
 		     ++str->data, --str->size)
-			tagnum = (tagnum << 7) | (*str->data & 0x7f);
+			z->tagnum = (z->tagnum << 7) | (*str->data & 0x7f);
 
 		if (head(&c, str) == IE_CONT)
 			return IE_CONT;
-		tagnum = (tagnum << 7) | (c & 0x7f);
+		z->tagnum = (z->tagnum << 7) | (c & 0x7f);
 
 tagnum_done:
-		if (tagnum > 1000) {
+		if (z->tagnum > 1000) {
 			set_error(&str->errmsg,
-				  "XXX Tag number is too big: %u", tagnum);
+				  "XXX Tag number is too big: %u", z->tagnum);
 			return IE_CONT;
 		}
-		printf("%u", tagnum);
 
 	case 2: /* Initial length octet */
 		cont = 2;
@@ -273,9 +261,9 @@ tagnum_done:
 
 		if (c & 0x80) {
 			len_sz = c & 0x7f; /* long form */
-			dest->len = 0;
+			z->len = 0;
 		} else {
-			dest->len = c; /* short form*/
+			z->len = c; /* short form*/
 			break;
 		}
 
@@ -283,7 +271,7 @@ tagnum_done:
 		cont = 3;
 		for (; str->size > 0 && len_sz > 0;
 		     --len_sz, ++str->data, --str->size)
-			dest->len = (dest->len << 8) | *str->data;
+			z->len = (z->len << 8) | *str->data;
 
 		if (len_sz > 0)
 			return IE_CONT;
@@ -303,7 +291,7 @@ tagnum_done:
  * @enough: Are there enough bytes in `str' to reach the end of tag?
  */
 static IterV
-prim(bool enough, struct Stream *str)
+print_prim(bool enough, struct Stream *str)
 {
 	static int cont = 0;
 
@@ -342,30 +330,6 @@ prim(bool enough, struct Stream *str)
 	return IE_DONE;
 }
 
-static void
-advance(size_t n, const struct Stream *src, struct Stream *master,
-	struct Stack *caps)
-{
-	for (; caps != NULL; caps = caps->next)
-		caps->value -= n; /* decrease capacities */
-
-	master->data = src->data;
-	master->size -= n;
-	master->errmsg = src->errmsg;
-}
-
-/*
- * Is there enough capacity for that many bytes?
- *
- * @n: number of bytes
- */
-static inline bool
-contained_p(size_t n, const struct Stack *caps)
-{
-	/* NULL signifies infinite capacity */
-	return caps == NULL ? true : caps->value >= n;
-}
-
 /* ---------------------------------------------------------------------
  * Enumeratee
  */
@@ -400,6 +364,33 @@ check_caps_invariant(const struct Caps *x)
 #else
 #  define check_caps_invariant(...)
 #endif
+
+static inline void
+decrease_capacities(struct Stack *caps, size_t n)
+{
+	for (; caps != NULL; caps = caps->next)
+		caps->value -= n;
+}
+
+static inline void
+update_master(struct Stream *master, size_t n, const struct Stream *src)
+{
+	master->data = src->data;
+	master->size -= n;
+	master->errmsg = src->errmsg;
+}
+
+/*
+ * Is there enough capacity for that many bytes?
+ *
+ * @n: number of bytes
+ */
+static inline bool
+contained_p(size_t n, const struct Stack *caps)
+{
+	/* NULL signifies infinite capacity */
+	return caps == NULL ? true : caps->value >= n;
+}
 
 #ifdef DEBUG
 static inline void
@@ -448,14 +439,14 @@ traverse(struct Caps *z, struct Stream *master)
 		debug_traversal_position(z, &str, master); /* XXX */
 
 		const size_t orig_size = str.size;
-		struct Cont_Attr next_cont;
+		struct Tag_Attr h;
 
-		const int indic = header_p ?
-			header(&next_cont, &str) :
-			prim(z->caps->value <= str.size, &str);
+		const int indic = header_p ? parse_header(&h, &str) :
+			print_prim(z->caps->value <= str.size, &str);
 		assert(indic == IE_DONE || indic == IE_CONT);
 
-		advance(orig_size - str.size, &str, master, z->caps);
+		decrease_capacities(z->caps, orig_size - str.size);
+		update_master(master, orig_size - str.size, &str);
 		debug_traversal_position(z, &str, master); /* XXX */
 
 		if (indic == IE_CONT)
@@ -470,15 +461,16 @@ traverse(struct Caps *z, struct Stream *master)
 		check_caps_invariant(z);
 
 		if (header_p) {
-			if (!contained_p(next_cont.len, z->caps)) {
+			if (!contained_p(h.len, z->caps)) {
 				set_error(&master->errmsg,
 					  "Tag is too big for its container");
 				return IE_CONT;
 			}
-			stack_push(&z->caps, next_cont.len);
+			stack_push(&z->caps, h.len);
 			++z->depth;
 
-			if (!next_cont.cons_p) {
+			printf("(%c%u", "uacp"[h.tclass], h.tagnum);
+			if (!h.cons_p) {
 				header_p = false;
 				putchar(' ');
 				continue;
