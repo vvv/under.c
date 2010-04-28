@@ -40,4 +40,11 @@ streq(const char *s1, const char *s2)
 	return strcmp(s1, s2) == 0;
 }
 
+/* Pascal string. */
+struct Pstring {
+	size_t size; /* size of buffer */
+	char *data; /* pointer to malloc(3)-ated memory */
+};
+#define PSTRING_INIT { 0, NULL }
+
 #endif /* _UTIL_H */

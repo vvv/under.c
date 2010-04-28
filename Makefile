@@ -6,7 +6,7 @@ CFLAGS = -g -Wall -Wextra
 # CFLAGS = -O3 -Wall -Wextra
 
 PROG = under
-SRC = under.c stack.c
+SRC = iteratee.c decoder.c under.c
 
 $(PROG): $(SRC)
 
