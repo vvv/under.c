@@ -34,6 +34,12 @@ xrealloc(void *ptr, size_t sz)
 	return rv;
 }
 
+/* Allocate memory for type and fill it with zero-valued bytes */
+#define new_zeroed(type) ({		   \
+	type *__x = xmalloc(sizeof(type)); \
+	memset(__x, 0, sizeof(type));	   \
+	__x; })
+
 static inline int
 streq(const char *s1, const char *s2)
 {

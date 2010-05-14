@@ -42,3 +42,13 @@ head(unsigned char *c, struct Stream *str)
 
 	return IE_DONE;
 }
+
+IterV
+drop_while(bool (*p)(unsigned char c), struct Stream *str)
+{
+	for (; str->size > 0; ++str->data, --str->size) {
+		if (!p(*str->data))
+			return IE_DONE;
+	}
+	return IE_CONT;
+}

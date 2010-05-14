@@ -3,6 +3,7 @@
 #include <assert.h>
 #include "util.h"
 #include "decoder.h"
+#include "encoder.h"
 
 #ifdef DEBUG
 #  define debug_print(format, ...) \
@@ -105,27 +106,28 @@ process(const char *inpath, struct Pstring *buf)
 	int retval = 0;
 	size_t filepos = 0;
 	struct Stream str = STREAM_INIT;
+#if 0 /*XXX*/
 	struct DecSt z = DECST_INIT(z);
+#else /*XXX*/
+	struct EncSt z = ENCST_INIT(z);
+#endif /*XXX*/
 
 	for (;;) {
 		const size_t orig_size = read_block(buf, f, &str);
 		assert(str.type == S_CHUNK || (str.type == S_EOF &&
 					       orig_size == 0));
 
-		if (str.type == S_EOF) {
-			if (str.errmsg != NULL) {
-				error_at_line(0, 0, inpath, filepos,
-					      "%s", str.errmsg);
-				retval = -1;
-			} else if (z.depth > 0) {
-				error_at_line(0, 0, inpath, filepos,
-					      "Unexpected EOF");
-				retval = -1;
-			}
+		if (str.type == S_EOF && str.errmsg != NULL) {
+			error_at_line(0, 0, inpath, filepos, "%s", str.errmsg);
+			retval = -1;
 			break;
 		}
 
-		const int indic = decode(&z, &str);
+#if 0 /*XXX*/
+		const IterV indic = decode(&z, &str);
+#else /*XXX*/
+		const IterV indic = encode(&z, &str);
+#endif /*XXX*/
 		assert(indic == IE_DONE || indic == IE_CONT);
 
 		filepos += orig_size - str.size;

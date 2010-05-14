@@ -2,6 +2,7 @@
 #define _ITERATEE_H
 
 #include <stddef.h>
+#include <stdbool.h>
 
 typedef enum { IE_CONT, IE_DONE } IterV;
 
@@ -46,7 +47,6 @@ struct Stream {
 	 */
 	char *errmsg;
 };
-
 #define STREAM_INIT { S_EOF, NULL, 0, NULL }
 
 /*
@@ -65,5 +65,8 @@ void set_error(char **errmsg, const char *format, ...);
  * Set an error if the stream is terminated.
  */
 IterV head(unsigned char *c, struct Stream *str);
+
+/* Skip prefix bytes that satisfy the predicate. */
+IterV drop_while(bool (*p)(unsigned char c), struct Stream *str);
 
 #endif /* _ITERATEE_H */

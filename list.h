@@ -90,7 +90,7 @@ static inline void __list_del(struct list_head *prev, struct list_head *next)
  * @head: the head of the list
  */
 static inline int list_is_last(const struct list_head *list,
-				const struct list_head *head)
+			       const struct list_head *head)
 {
 	return list->next == head;
 }
@@ -114,6 +114,17 @@ static inline int list_empty(const struct list_head *head)
  */
 #define list_entry(ptr, type, member) \
 	((type *)((char *)(ptr) - offsetof(type, member)))
+
+/**
+ * list_first_entry - get the first element from a list
+ * @ptr: the list head to take the element from.
+ * @type: the type of the struct this is embedded in.
+ * @member: the name of the list_struct within the struct.
+ *
+ * Note, that list is expected to be not empty.
+ */
+#define list_first_entry(ptr, type, member) \
+	list_entry((ptr)->next, type, member)
 
 /**
  * __list_for_each - iterate over a list
