@@ -150,7 +150,7 @@ int
 main(int argc, char **argv)
 {
 	struct Pstring inbuf = PSTRING_INIT;
-	unsigned char encbuf[512] = {0}; /* XXX not needed for decoding mode */
+	unsigned char encbuf[512] = {0}; /* XXX not needed for decoding */
 
 	int rv = 0;
 	if (argc == 1) {

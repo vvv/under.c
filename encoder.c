@@ -156,6 +156,22 @@ read_header(struct ASN1_Header *tag, struct Stream *str)
 	return IE_DONE;
 }
 
+/* Append byte `c' to `dest' */
+static IterV
+putbyte(unsigned char c, struct Pstring *dest, char **errmsg)
+{
+	if (dest->size == 0) {
+		set_error(errmsg, "Insufficient capacity of encoded bytes'"
+			  " accumulator");
+		return IE_CONT;
+	}
+
+	*dest->data = c;
+	++dest->data;
+	--dest->size;
+	return IE_DONE;
+}
+
 /* Parse '\s*([0-9a-zA-Z]{2}(\s+[0-9a-zA-Z]{2})*\s*)?"' regexp */
 static IterV
 _primval(struct Pstring *dest, struct EncSt *z, struct Stream *str)
@@ -201,16 +217,11 @@ _primval(struct Pstring *dest, struct EncSt *z, struct Stream *str)
 		if (nibble == 0) {
 			nibble = c;
 			continue;
-		} else if (z->acc.size == 0) {
-			/* XXX ? extract `check_accumulator' function */
-			set_error(&str->errmsg, "Insufficient capacity of"
-				  " encoded bytes' accumulator");
-			return IE_CONT;
 		} else {
 			const char s[] = { nibble, c, 0 };
-			*z->acc.data = strtoul(s, NULL, 16);
-			++z->acc.data;
-			--z->acc.size;
+			if (putbyte(strtoul(s, NULL, 16), &z->acc,
+				    &str->errmsg) == IE_CONT)
+				return IE_CONT;
 			++dest->size;
 
 			nibble = 0;
