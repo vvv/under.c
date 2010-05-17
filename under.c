@@ -5,13 +5,6 @@
 #include "decoder.h"
 #include "encoder.h"
 
-#ifdef DEBUG
-#  define debug_print(format, ...) \
-	fprintf(stderr, "(DEBUG) " format "\n", ##__VA_ARGS__)
-#else
-#  define debug_print(...)
-#endif
-
 /*
  * Adjust buffer to file's blocksize.
  *
@@ -87,7 +80,8 @@ read_block(struct Pstring *dest, FILE *src, struct Stream *stream)
  * Return value: 0 -- successful completion, -1 -- error.
  */
 static int
-process(const char *inpath, struct Pstring *buf)
+process(const char *inpath, struct Pstring *inbuf, unsigned char *encbuf,
+	size_t encbuf_size)
 {
 	FILE *f = NULL;
 
@@ -98,7 +92,7 @@ process(const char *inpath, struct Pstring *buf)
 		return -1;
 	}
 
-	if (adjust_buffer(f, buf) < 0) {
+	if (adjust_buffer(f, inbuf) < 0) {
 		error(0, errno, "%s", inpath);
 		return -1;
 	}
@@ -109,11 +103,11 @@ process(const char *inpath, struct Pstring *buf)
 #if 0 /*XXX*/
 	struct DecSt z = DECST_INIT(z);
 #else /*XXX*/
-	struct EncSt z = ENCST_INIT(z);
+	struct EncSt z = ENCST_INIT(encbuf_size, encbuf, z);
 #endif /*XXX*/
 
 	for (;;) {
-		const size_t orig_size = read_block(buf, f, &str);
+		const size_t orig_size = read_block(inbuf, f, &str);
 		assert(str.type == S_CHUNK || (str.type == S_EOF &&
 					       orig_size == 0));
 
@@ -155,17 +149,18 @@ process(const char *inpath, struct Pstring *buf)
 int
 main(int argc, char **argv)
 {
-	struct Pstring buf = PSTRING_INIT;
+	struct Pstring inbuf = PSTRING_INIT;
+	unsigned char encbuf[512] = {0}; /* XXX not needed for decoding mode */
 
 	int rv = 0;
 	if (argc == 1) {
-		rv = process("-", &buf);
+		rv = process("-", &inbuf, encbuf, sizeof(encbuf));
 	} else {
 		int i;
 		for (i = 1; i < argc; i++)
-			rv |= process(argv[i], &buf);
+			rv |= process(argv[i], &inbuf, encbuf, sizeof(encbuf));
 	}
 
-	free(buf.data);
+	free(inbuf.data);
 	return -rv;
 }

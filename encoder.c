@@ -5,14 +5,6 @@
 #include "asn1.h"
 #include "util.h"
 
-/* XXX code duplication! */
-#ifdef DEBUG
-#  define debug_print(format, ...) \
-	fprintf(stderr, "(DEBUG) " format "\n", ##__VA_ARGS__)
-#else
-#  define debug_print(...)
-#endif
-
 static inline bool
 _isspace(unsigned char c)
 {
@@ -164,51 +156,105 @@ read_header(struct ASN1_Header *tag, struct Stream *str)
 	return IE_DONE;
 }
 
-/* Parse '([0-9a-zA-Z]{2}(\s+[0-9a-zA-Z]{2})*)?"\s*\)' regexp */
+/* Parse '\s*([0-9a-zA-Z]{2}(\s+[0-9a-zA-Z]{2})*\s*)?"' regexp */
 static IterV
-read_primitive(struct Pstring *dest, struct Stream *str)
+_primval(struct Pstring *dest, struct EncSt *z, struct Stream *str)
 {
-/* XXX ! */
+	static unsigned char nibble = 0;
+	static bool expect_space = false;
+
+	unsigned char c;
+	for (;;) {
+		if (head(&c, str) == IE_CONT)
+			return IE_CONT;
+
+		if (nibble == 0) {
+			if (c == '"') {
+				expect_space = false;
+				return IE_DONE;
+			}
+
+			if (isspace(c)) {
+				expect_space = false;
+
+				if (drop_while(_isspace, str) == IE_CONT)
+					return IE_CONT;
+
+				c = *str->data;
+				++str->data;
+				--str->size;
+
+				if (c == '"')
+					return IE_DONE;
+			} else if (expect_space) {
+				set_error(&str->errmsg, "White-space character"
+					  " expected");
+				return IE_CONT;
+			}
+		}
+
+		if (!isxdigit(c)) {
+			set_error(&str->errmsg, "Hexadecimal digit expected");
+			return IE_CONT;
+		}
+
+		if (nibble == 0) {
+			nibble = c;
+			continue;
+		} else if (z->acc.size == 0) {
+			/* XXX ? extract `check_accumulator' function */
+			set_error(&str->errmsg, "Insufficient capacity of"
+				  " encoded bytes' accumulator");
+			return IE_CONT;
+		} else {
+			const char s[] = { nibble, c, 0 };
+			*z->acc.data = strtoul(s, NULL, 16);
+			++z->acc.data;
+			--z->acc.size;
+			++dest->size;
+
+			nibble = 0;
+			expect_space = true;
+		}
+	}
+}
+
+/* Parse '\s*([0-9a-zA-Z]{2}(\s+[0-9a-zA-Z]{2})*\s*)?"\s*\)' regexp */
+static IterV
+read_primitive(struct Pstring *dest, struct EncSt *z, struct Stream *str)
+{
 	static int cont = 0;
 
 	switch (cont) {
 	case 0:
-		fputs("XXX read_primitive: `", stderr);
+		dest->data = z->acc.data;
+		dest->size = 0;
 
 		cont = 1;
 	case 1:
-		{
-			unsigned char c;
-			for (;;) {
-				if (head(&c, str) == IE_CONT)
-					return IE_CONT;
-
-				if (c == '"')
-					break;
-				else
-					fputc(c, stderr);
-			}
-		}
+		if (_primval(dest, z, str) == IE_CONT)
+			return IE_CONT;
 
 		cont = 2;
 	case 2:
 		if (drop_while(_isspace, str) == IE_CONT)
 			return IE_CONT;
 
-		if (*str->data == ')') {
-			++str->data;
-			--str->size;
-			break; /* done */
-		} else {
+		if (*str->data != ')') {
 			set_error(&str->errmsg, "`)' expected");
 			return IE_CONT;
 		}
+		++str->data;
+		--str->size;
 
+		break;
 	default:
 		assert(0 == 1);
+		return -1;
 	}
 
-	fputs("'\n", stderr);
+	debug_print("read_primitive: %lu bytes read",
+		    (unsigned long) dest->size);
 	cont = 0;
 	return IE_DONE;
 }
@@ -223,8 +269,8 @@ encode_header(union U_Header *dest)
 {
 /* XXX ! */
 	const struct ASN1_Header *h = &dest->rec;
-	fprintf(stderr, "XXX encode_header: %c%u %s %lu\n", "uacp"[h->cls],
-		h->num, h->cons_p ? "cons" : "prim", (unsigned long) h->len);
+	debug_print("encode_header: %c%u %s %lu", "uacp"[h->cls], h->num,
+		    h->cons_p ? "cons" : "prim", (unsigned long) h->len);
 }
 
 /* Node of the ``encoding tree'' */
@@ -237,11 +283,6 @@ struct Node {
 	/* DER encoding of primitive contents; NULL for constructed tags */
 	struct Pstring *contents;
 };
-
-#define new_cleared(type) ({ \
-	type *__x = xmalloc(sizeof(type)); \
-	memset(__x, 0, sizeof(type)); \
-	return __x; })
 
 /* An element of backtrace */
 struct Frame {
@@ -345,11 +386,11 @@ header:
 
 		cont = 3;
 	case 3:
-		if (read_primitive(cur->contents, str) == IE_CONT)
+		if (read_primitive(cur->contents, z, str) == IE_CONT)
 			return IE_CONT;
 
 		cur->header.rec.len = cur->contents->size;
-		encode_header(&cur->header); /* XXX ! */
+		encode_header(&cur->header);
 
 		if (at_root_frame(z))
 			break; /* done */
@@ -394,7 +435,7 @@ write_tree(struct EncSt *z)
 {
 /* XXX ! */
 	assert(at_root_frame(z));
-	fprintf(stderr, "XXX write_tree\n");
+	debug_print("XXX write_tree");
 }
 
 IterV

@@ -1,11 +1,14 @@
 #ifndef _ENCODER_H
 #define _ENCODER_H
 
+#include "util.h"
 #include "list.h"
 #include "iteratee.h"
 
 /* State of encoder */
 struct EncSt {
+	struct Pstring acc; /* Encoded bytes' accumulator */
+
 	/*
 	 * Backtrace -- a summary of how encoder got where it is.
 	 *
@@ -14,7 +17,8 @@ struct EncSt {
 	 */
 	struct list_head bt;
 };
-#define ENCST_INIT(name) { LIST_HEAD_INIT(name.bt) }
+#define ENCST_INIT(asize, adata, name) \
+	{ { (asize), (adata) }, LIST_HEAD_INIT(name.bt) }
 
 /* XXX */
 IterV encode(struct EncSt *z, struct Stream *str);

@@ -9,6 +9,14 @@
 #define die(format, ...)  error(1, 0, format, ##__VA_ARGS__)
 #define die_errno(format, ...)  error(1, errno, format, ##__VA_ARGS__)
 
+/* Source files that use `debug_print' need to #include <stdio.h> */
+#ifdef DEBUG
+#  define debug_print(format, ...) \
+	fprintf(stderr, "(DEBUG) " format "\n", ##__VA_ARGS__)
+#else
+#  define debug_print(...)
+#endif
+
 #ifndef MAX
 #  define MAX(x, y) ((x) > (y) ? (x) : (y))
 #endif
@@ -46,10 +54,10 @@ streq(const char *s1, const char *s2)
 	return strcmp(s1, s2) == 0;
 }
 
-/* Pascal string. */
+/* Pascal string */
 struct Pstring {
-	size_t size; /* size of buffer */
-	char *data; /* pointer to malloc(3)-ated memory */
+	size_t size;
+	unsigned char *data;
 };
 #define PSTRING_INIT { 0, NULL }
 
