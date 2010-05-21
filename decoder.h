@@ -6,7 +6,7 @@
 
 /* Decoding state. */
 struct DecSt {
-	unsigned int depth; /* Current depth within tag hierarchy. */
+	uint32_t depth; /* Current depth within tag hierarchy. */
 
 	/*
 	 * List of remaining capacities.

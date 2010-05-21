@@ -68,7 +68,7 @@ read_block(struct Pstring *dest, FILE *src, struct Stream *stream)
 
 	debug_print("read_block: %lu bytes read", (unsigned long) n);
 	stream->type = S_CHUNK;
-	stream->data = (unsigned char *) dest->data;
+	stream->data = dest->data;
 	stream->size = n;
 
 	return n;
@@ -80,7 +80,7 @@ read_block(struct Pstring *dest, FILE *src, struct Stream *stream)
  * Return value: 0 -- successful completion, -1 -- error.
  */
 static int
-process(const char *inpath, struct Pstring *inbuf, unsigned char *encbuf,
+process(const char *inpath, struct Pstring *inbuf, uint8_t *encbuf,
 	size_t encbuf_size)
 {
 	FILE *f = NULL;
@@ -150,7 +150,7 @@ int
 main(int argc, char **argv)
 {
 	struct Pstring inbuf = PSTRING_INIT;
-	unsigned char encbuf[512] = {0}; /* XXX not needed for decoding */
+	uint8_t encbuf[512] = {0}; /* XXX not needed for decoding */
 
 	int rv = 0;
 	if (argc == 1) {

@@ -1,12 +1,16 @@
 #include <stdio.h>
 #include <ctype.h>
 #include <assert.h>
+#ifndef _BSD_SOURCE
+#  define _BSD_SOURCE
+#endif
+#include <endian.h>
 #include "encoder.h"
 #include "asn1.h"
 #include "util.h"
 
 static inline bool
-_isspace(unsigned char c)
+_isspace(uint8_t c)
 {
 	return isspace(c);
 }
@@ -30,7 +34,7 @@ left_bracket(struct Stream *str)
 
 /* Parse '\s*[)(]' regexp, saving met bracket in `*c' */
 static IterV
-any_bracket(unsigned char *c, struct Stream *str)
+any_bracket(uint8_t *c, struct Stream *str)
 {
         if (drop_while(_isspace, str) == IE_CONT)
                 return IE_CONT;
@@ -91,9 +95,9 @@ read_tag_class(enum Tag_Class *dest, struct Stream *str)
 
 /* Parse '[0-9]+\s' regexp */
 static IterV
-read_tag_number(unsigned int *dest, struct Stream *str)
+read_tag_number(uint32_t *dest, struct Stream *str)
 {
-	static unsigned int n = 0; /* number of parsed digits */
+	static uint32_t n = 0; /* number of parsed digits */
 
 	for (; str->size > 0 && isdigit(*str->data);
 	     ++str->data, --str->size) {
@@ -156,30 +160,37 @@ read_header(struct ASN1_Header *tag, struct Stream *str)
 	return IE_DONE;
 }
 
-/* Append byte `c' to `dest' */
-static IterV
-putbyte(unsigned char c, struct Pstring *dest, char **errmsg)
+/* Append memory area to `dest' */
+static int
+putmem(const void *src, size_t n, struct Pstring *dest, char **errmsg)
 {
-	if (dest->size == 0) {
+	if (dest->size < n) {
 		set_error(errmsg, "Insufficient capacity of encoded bytes'"
 			  " accumulator");
-		return IE_CONT;
+		return -1;
 	}
 
-	*dest->data = c;
-	++dest->data;
-	--dest->size;
-	return IE_DONE;
+	memcpy(dest->data, src, n);
+	dest->data += n;
+	dest->size -= n;
+	return 0;
+}
+
+/* Append a byte to `dest' */
+static inline int
+putbyte(uint8_t c, struct Pstring *dest, char **errmsg)
+{
+	return putmem(&c, 1, dest, errmsg);
 }
 
 /* Parse '\s*([0-9a-zA-Z]{2}(\s+[0-9a-zA-Z]{2})*\s*)?"' regexp */
 static IterV
 _primval(struct Pstring *dest, struct EncSt *z, struct Stream *str)
 {
-	static unsigned char nibble = 0;
+	static uint8_t nibble = 0;
 	static bool expect_space = false;
 
-	unsigned char c;
+	uint8_t c;
 	for (;;) {
 		if (head(&c, str) == IE_CONT)
 			return IE_CONT;
@@ -220,7 +231,7 @@ _primval(struct Pstring *dest, struct EncSt *z, struct Stream *str)
 		} else {
 			const char s[] = { nibble, c, 0 };
 			if (putbyte(strtoul(s, NULL, 16), &z->acc,
-				    &str->errmsg) == IE_CONT)
+				    &str->errmsg) != 0)
 				return IE_CONT;
 			++dest->size;
 
@@ -270,18 +281,74 @@ read_primitive(struct Pstring *dest, struct EncSt *z, struct Stream *str)
 	return IE_DONE;
 }
 
+/*
+ * Append encoding of "high" tag number to accumulator.
+ * Note, that tag number is expected to be greater than 30.
+ */
+static int
+encode_htagnum(uint32_t n, struct Pstring *acc, char **errmsg)
+{
+	uint8_t buf[sizeof(n)*8/7 + 1];
+	register uint8_t *p = buf + sizeof(buf);
+
+	do {
+		*(--p) = 0x80 | (n & 0x7f);
+		n >>= 7;
+	} while (n != 0);
+
+	buf[sizeof(buf) - 1] &= 0x7f;
+
+	return putmem(p, buf + sizeof(buf) - p, acc, errmsg);
+}
+
 union U_Header {
 	struct ASN1_Header rec; /* Intermediate representation */
 	struct Pstring enc; /* DER encoding */
 };
 
-static void
-encode_header(union U_Header *dest)
+/* Encode tag header and write the encoded data to accumulator */
+static int
+encode_header(union U_Header *io, struct Pstring *acc, char **errmsg)
 {
-/* XXX ! */
-	const struct ASN1_Header *h = &dest->rec;
-	debug_print("encode_header: %c%u %s %lu", "uacp"[h->cls], h->num,
+	struct Pstring r = { 0, acc->data };
+	const struct ASN1_Header *h = &io->rec;
+	debug_print("encode_header: %c%u %s %lu \\", "uacp"[h->cls], h->num,
 		    h->cons_p ? "cons" : "prim", (unsigned long) h->len);
+
+	if (putbyte((h->cls << 6) | (h->cons_p ? 0x20 : 0) |
+		    (h->num <= 30 ? h->num : 0x1f), acc, errmsg) != 0)
+		return -1;
+	++r.size;
+
+	if (h->num > 30) { /* high tag number */
+		const size_t orig_size = acc->size;
+		if (encode_htagnum(h->num, acc, errmsg) != 0)
+			return -1;
+		r.size += orig_size - acc->size;
+	}
+
+	if (h->len < 0x80) { /* short length */
+		if (putbyte(h->len, acc, errmsg) != 0)
+			return -1;
+		++r.size;
+	} else { /* long length */
+		const uint64_t ben = htobe64(h->len);
+		const uint8_t *p = (const void *)&ben;
+		const uint8_t *end = p + sizeof(ben);
+
+		while (*p == 0 && p < end)
+		       ++p;
+
+		if (putbyte(0x80 | (end - p), acc, errmsg) != 0 ||
+		    putmem(p, end - p, acc, errmsg) != 0)
+			return -1;
+		r.size += 1 + end - p;
+	}
+
+	debug_hexdump("encode_header: \\", r.data, r.size);
+	io->enc.data = r.data;
+	io->enc.size = r.size;
+	return 0;
 }
 
 /* Node of the ``encoding tree'' */
@@ -314,14 +381,26 @@ curnode(const struct EncSt *z)
  * Note, that the backtrace is expected to contain at least two frames.
  */
 static inline struct Node *
-parent(const struct EncSt *z)
+_parent(const struct EncSt *z)
 {
 	assert(!list_empty(&z->bt));
 	assert(!list_is_last(z->bt.next, &z->bt));
-	return list_entry(&z->bt.next->next, struct Frame, h)->node;
+	return list_entry(z->bt.next->next, struct Frame, h)->node;
 }
 
-/* Test whether there is only one frame in the backtrace */
+/*
+ * Address of the `.header.rec.len' member of the current node's parent.
+ *
+ * Note, that the backtrace is expected to contain at least two frames.
+ * And you better be sure that the header of the parent is not encoded yet.
+ */
+static inline size_t *
+parent_len(const struct EncSt *z)
+{
+	return &_parent(z)->header.rec.len;
+}
+
+/* Test whether there is exactly one frame in the backtrace */
 static bool
 at_root_frame(const struct EncSt *z)
 {
@@ -399,29 +478,34 @@ header:
 	case 3:
 		if (read_primitive(cur->contents, z, str) == IE_CONT)
 			return IE_CONT;
-
 		cur->header.rec.len = cur->contents->size;
-		encode_header(&cur->header);
 
 		if (at_root_frame(z))
-			break; /* done */
+			break;
 
-		parent(z)->header.rec.len +=
-			cur->header.enc.size + cur->contents->size;
+		if (encode_header(&cur->header, &z->acc, &str->errmsg) != 0)
+			return IE_CONT; /* error */
+		*parent_len(z) += cur->header.enc.size + cur->contents->size;
 
 		cont = 4;
 	case 4:
 		for (;;) {
-			unsigned char c;
+			uint8_t c;
 			if (any_bracket(&c, str) == IE_CONT)
 				return IE_CONT;
 			pop_frame(z);
 
 			if (c == ')') {
 				if (at_root_frame(z))
-					break; /* done */
-
+					break;
 				cur = curnode(z);
+
+				*parent_len(z) += cur->header.rec.len;
+				if (encode_header(&cur->header, &z->acc,
+						  &str->errmsg) != 0)
+					return IE_CONT; /* error */
+
+				*parent_len(z) += cur->header.enc.size;
 			} else if (c == '(') {
 				cur = cur->next = new_zeroed(struct Node);
 				push_frame(cur, z);
@@ -436,6 +520,10 @@ header:
 	default:
 		assert(0 == 1);
 	}
+
+	assert(at_root_frame(z));
+	if (encode_header(&curnode(z)->header, &z->acc, &str->errmsg) != 0)
+		return IE_CONT;
 
 	cont = 0;
 	return IE_DONE;

@@ -26,7 +26,7 @@ set_error(char **errmsg, const char *format, ...)
 }
 
 IterV
-head(unsigned char *c, struct Stream *str)
+head(uint8_t *c, struct Stream *str)
 {
 	if (str->type == S_EOF) {
 		set_error(&str->errmsg, "head: EOF");
@@ -44,7 +44,7 @@ head(unsigned char *c, struct Stream *str)
 }
 
 IterV
-drop_while(bool (*p)(unsigned char c), struct Stream *str)
+drop_while(bool (*p)(uint8_t c), struct Stream *str)
 {
 	for (; str->size > 0; ++str->data, --str->size) {
 		if (!p(*str->data))

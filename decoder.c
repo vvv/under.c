@@ -15,7 +15,7 @@ decode_header(struct ASN1_Header *tag, struct Stream *str)
 	static int cont = 0; /* Point to continue execution from */
 	static size_t len_sz; /* Number of length octets, excluding initial */
 
-	unsigned char c;
+	uint8_t c;
 
 	switch (cont) {
 	case 0: /* Identifier octet(s) -- cases 0..2 */
@@ -106,7 +106,7 @@ print_prim(bool enough, struct Stream *str)
 		cont = 1;
 	case 1:
 		{
-			unsigned char c;
+			uint8_t c;
 			if (head(&c, str) == IE_CONT) {
 				if (!enough)
 					return IE_CONT;
@@ -163,7 +163,7 @@ remcap(const struct DecSt *z)
 static void
 check_DecSt_invariant(const struct DecSt *z)
 {
-	unsigned int len = 0;
+	uint32_t len = 0;
 	const struct list_head *p;
 
 	__list_for_each(p, &z->caps) {
@@ -320,7 +320,7 @@ decode(struct DecSt *z, struct Stream *master)
 		}
 
 		putchar('\n');
-		unsigned int i;
+		uint32_t i;
 		for (i = 0; i < z->depth; ++i)
 			fputs("    ", stdout);
 	}

@@ -1,6 +1,8 @@
 #ifndef _ASN1_H
 #define _ASN1_H
 
+#include <stdint.h>
+
 enum Tag_Class { TC_UNIVERSAL, TC_APPLICATION, TC_CONTEXT, TC_PRIVATE };
 
 /*
@@ -10,7 +12,7 @@ enum Tag_Class { TC_UNIVERSAL, TC_APPLICATION, TC_CONTEXT, TC_PRIVATE };
  */
 struct ASN1_Header {
 	enum Tag_Class cls; /* Tag class. */
-	unsigned int num; /* Tag number. */
+	uint32_t num; /* Tag number. */
 	bool cons_p; /* Is encoding constructed? */
 	size_t len; /* Length of contents. */
 };

@@ -3,6 +3,7 @@
 
 #include <stddef.h>
 #include <stdbool.h>
+#include <stdint.h>
 
 typedef enum { IE_CONT, IE_DONE } IterV;
 
@@ -22,7 +23,7 @@ struct Stream {
 	 *
 	 * Meaningless for S_EOF.
 	 */
-	const unsigned char *data;
+	const uint8_t *data;
 
 	/*
 	 * Size of chunk (S_CHUNK only).
@@ -64,9 +65,9 @@ void set_error(char **errmsg, const char *format, ...);
  * Attempt to read the next byte of the stream and store it in `*c'.
  * Set an error if the stream is terminated.
  */
-IterV head(unsigned char *c, struct Stream *str);
+IterV head(uint8_t *c, struct Stream *str);
 
 /* Skip prefix bytes that satisfy the predicate. */
-IterV drop_while(bool (*p)(unsigned char c), struct Stream *str);
+IterV drop_while(bool (*p)(uint8_t c), struct Stream *str);
 
 #endif /* _ITERATEE_H */

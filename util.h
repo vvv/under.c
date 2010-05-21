@@ -5,6 +5,7 @@
 #include <errno.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdint.h>
 
 #define die(format, ...)  error(1, 0, format, ##__VA_ARGS__)
 #define die_errno(format, ...)  error(1, errno, format, ##__VA_ARGS__)
@@ -15,6 +16,19 @@
 	fprintf(stderr, "(DEBUG) " format "\n", ##__VA_ARGS__)
 #else
 #  define debug_print(...)
+#endif
+
+#ifdef DEBUG
+/*
+ * Print hexadecimal dump of memory.
+ *
+ * @msg: prefix message (optional)
+ * @addr: start of data
+ * @size: number of bytes
+ */
+void debug_hexdump(const char *msg, void *addr, size_t size);
+#else
+#  define debug_hexdump(...)
 #endif
 
 #ifndef MAX
@@ -57,7 +71,7 @@ streq(const char *s1, const char *s2)
 /* Pascal string */
 struct Pstring {
 	size_t size;
-	unsigned char *data;
+	uint8_t *data;
 };
 #define PSTRING_INIT { 0, NULL }
 
