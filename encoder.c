@@ -1,10 +1,20 @@
 #include <stdio.h>
 #include <ctype.h>
 #include <assert.h>
+
 #ifndef _BSD_SOURCE
 #  define _BSD_SOURCE
 #endif
 #include <endian.h>
+#ifndef htobe64
+# if __BYTE_ORDER == __LITTLE_ENDIAN
+#  include <byteswap.h>
+#  define htobe64(x) __bswap_64 (x)
+# else
+#  define htobe64(x) (x)
+# endif
+#endif
+
 #include "encoder.h"
 #include "asn1.h"
 #include "util.h"
