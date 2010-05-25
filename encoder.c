@@ -432,18 +432,9 @@ IterV
 read_tree(struct EncSt *z, struct Stream *str)
 {
 	static int cont = 0;
-
-	if (str->type == S_EOF) {
-		if (list_empty(&z->bt)) {
-			return IE_DONE;
-		} else {
-			set_error(&str->errmsg, "Unexpected EOF");
-			return IE_CONT;
-		}
-	}
+	assert(str->type == S_CHUNK);
 
 	struct Node *cur = curnode(z);
-
 	switch (cont) {
 	case 0:
 		assert(list_empty(&z->bt));
@@ -529,17 +520,53 @@ header:
 	return IE_DONE;
 }
 
+/* Write Pascal string to stdout */
+static inline void
+putps(const struct Pstring *s)
+{
+	fwrite(s->data, s->size, 1, stdout);
+}
+
+/* Write encoded data to stdout, freeing allocated resources */
 static void
 write_tree(struct EncSt *z)
 {
-/* XXX ! */
 	assert(at_root_frame(z));
-	debug_print("XXX write_tree");
+
+	struct Node *cur;
+	for (; (cur = curnode(z)) != NULL; free(cur)) {
+		putps(&cur->header.enc);
+		if (cur->contents != NULL) {
+			putps(cur->contents);
+			free(cur->contents);
+		}
+
+		if (cur->next != NULL) {
+			list_first_entry(&z->bt, struct Frame, h)->node =
+				cur->next;
+			if (cur->child != NULL)
+				push_frame(cur->child, z);
+		} else if (cur->child != NULL) {
+			list_first_entry(&z->bt, struct Frame, h)->node =
+				cur->child;
+		} else {
+			pop_frame(z);
+		}
+	}
 }
 
 IterV
 encode(struct EncSt *z, struct Stream *str)
 {
+	if (str->type == S_EOF) {
+		if (list_empty(&z->bt)) {
+			return IE_DONE;
+		} else {
+			set_error(&str->errmsg, "Unexpected EOF");
+			return IE_CONT;
+		}
+	}
+
 	for (;;) {
 		if (read_tree(z, str) == IE_CONT)
 			return IE_CONT;
