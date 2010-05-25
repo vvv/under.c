@@ -19,6 +19,29 @@
 #include "asn1.h"
 #include "util.h"
 
+static uint8_t *encbuf = NULL;
+
+void
+init_EncSt(struct EncSt *z)
+{
+	assert(encbuf == NULL);
+
+	encbuf = xmalloc(512);
+	z->acc.size = 512;
+	z->acc.data = encbuf;
+
+	INIT_LIST_HEAD(&z->bt);
+}
+
+void
+free_EncSt(struct EncSt *z)
+{
+	free(encbuf);
+	encbuf = NULL;
+
+	free(z);
+}
+
 static inline bool
 _isspace(uint8_t c)
 {

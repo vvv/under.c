@@ -17,8 +17,12 @@ struct EncSt {
 	 */
 	struct list_head bt;
 };
-#define ENCST_INIT(asize, adata, name) \
-	{ { (asize), (adata) }, LIST_HEAD_INIT(name.bt) }
+
+/* XXX */
+void init_EncSt(struct EncSt *z);
+
+/* XXX */
+void free_EncSt(struct EncSt *z);
 
 /* XXX */
 IterV encode(struct EncSt *z, struct Stream *str);

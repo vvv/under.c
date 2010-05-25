@@ -2,8 +2,7 @@
 #include <sys/stat.h>
 #include <assert.h>
 #include "util.h"
-#include "decoder.h"
-#include "encoder.h"
+#include "codec.h"
 
 /*
  * Adjust buffer to file's blocksize.
@@ -80,8 +79,7 @@ read_block(struct Pstring *dest, FILE *src, struct Stream *stream)
  * Return value: 0 -- successful completion, -1 -- error.
  */
 static int
-process(const char *inpath, struct Pstring *inbuf, uint8_t *encbuf,
-	size_t encbuf_size)
+process(enum Codec_T ct, const char *inpath, struct Pstring *inbuf)
 {
 	FILE *f = NULL;
 
@@ -100,11 +98,7 @@ process(const char *inpath, struct Pstring *inbuf, uint8_t *encbuf,
 	int retval = 0;
 	size_t filepos = 0;
 	struct Stream str = STREAM_INIT;
-#if 0 /*XXX*/
-	struct DecSt z = DECST_INIT(z);
-#else /*XXX*/
-	struct EncSt z = ENCST_INIT(encbuf_size, encbuf, z);
-#endif /*XXX*/
+	void *z = NULL;
 
 	for (;;) {
 		const size_t orig_size = read_block(inbuf, f, &str);
@@ -117,13 +111,8 @@ process(const char *inpath, struct Pstring *inbuf, uint8_t *encbuf,
 			break;
 		}
 
-#if 0 /*XXX*/
-		const IterV indic = decode(&z, &str);
-#else /*XXX*/
-		const IterV indic = encode(&z, &str);
-#endif /*XXX*/
+		const IterV indic = run_codec(ct, &z, &str);
 		assert(indic == IE_DONE || indic == IE_CONT);
-
 		filepos += orig_size - str.size;
 
 		if (indic == IE_DONE)
@@ -143,22 +132,29 @@ process(const char *inpath, struct Pstring *inbuf, uint8_t *encbuf,
 		retval |= fclose(f);
 
 	free(str.errmsg);
+	free_codec(ct, z);
 	return retval;
 }
 
 int
 main(int argc, char **argv)
 {
-	struct Pstring inbuf = PSTRING_INIT;
-	uint8_t encbuf[512] = {0}; /* XXX not needed for decoding */
+	struct Pstring inbuf = { 0, NULL };
+	enum Codec_T ct = DECODER;
+
+	if (argc > 1 && streq(argv[1], "-e")) {
+		ct = ENCODER;
+		++argv;
+		--argc;
+	}
 
 	int rv = 0;
 	if (argc == 1) {
-		rv = process("-", &inbuf, encbuf, sizeof(encbuf));
+		rv = process(ct, "-", &inbuf);
 	} else {
 		int i;
 		for (i = 1; i < argc; i++)
-			rv |= process(argv[i], &inbuf, encbuf, sizeof(encbuf));
+			rv |= process(ct, argv[i], &inbuf);
 	}
 
 	free(inbuf.data);

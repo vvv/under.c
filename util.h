@@ -73,6 +73,5 @@ struct Pstring {
 	size_t size;
 	uint8_t *data;
 };
-#define PSTRING_INIT { 0, NULL }
 
 #endif /* _UTIL_H */

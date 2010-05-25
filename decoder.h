@@ -16,7 +16,13 @@ struct DecSt {
 	 */
 	struct list_head caps;
 };
-#define DECST_INIT(name) { 0, LIST_HEAD_INIT(name.caps) }
+
+static inline void
+init_DecSt(struct DecSt *z)
+{
+	z->depth = 0;
+	INIT_LIST_HEAD(&z->caps);
+}
 
 /*
  * Decode DER data.  [enumeratee]
