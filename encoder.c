@@ -20,14 +20,15 @@
 #include "util.h"
 
 static uint8_t *encbuf = NULL;
+enum { ENCBUF_SIZE = 512 };
 
 void
 init_EncSt(struct EncSt *z)
 {
 	assert(encbuf == NULL);
 
-	encbuf = xmalloc(512);
-	z->acc.size = 512;
+	encbuf = xmalloc(ENCBUF_SIZE);
+	z->acc.size = ENCBUF_SIZE;
 	z->acc.data = encbuf;
 
 	INIT_LIST_HEAD(&z->bt);
@@ -586,6 +587,9 @@ write_tree(struct EncSt *z)
 			pop_frame(z);
 		}
 	}
+
+	z->acc.size = ENCBUF_SIZE;
+	z->acc.data = encbuf;
 }
 
 IterV
