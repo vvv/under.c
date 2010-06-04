@@ -10,7 +10,7 @@
 #define die(format, ...)  error(1, 0, format, ##__VA_ARGS__)
 #define die_errno(format, ...)  error(1, errno, format, ##__VA_ARGS__)
 
-/* Source files that use `debug_print' need to #include <stdio.h> */
+/* Source files using `debug_print' need to #include <stdio.h> */
 #ifdef DEBUG
 #  define debug_print(format, ...) \
 	fprintf(stderr, "(DEBUG) " format "\n", ##__VA_ARGS__)

@@ -15,7 +15,7 @@ debug_hexdump(const char *msg, void *addr, size_t size)
 		fprintf(stderr, "%02x", *p);
 
 	size_t i;
-	for (i = 1, p += 1; i < size; ++i, ++p)
+	for (i = 1, ++p; i < size; ++i, ++p)
 		fprintf(stderr, " %02x", *p);
 
 	fputs("]\n", stderr);

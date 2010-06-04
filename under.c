@@ -5,16 +5,23 @@
 #include "codec.h"
 
 /*
- * Adjust buffer to file's blocksize.
+ * Adjust buffer to the blocksize of a file.
  *
- * Do nothing if the size of buffer is equal to blocksize of file.
- * Otherwise (re)allocate memory.
+ * Do nothing if size of buffer is equal to blocksize of file;
+ * otherwise (re)allocate memory.
  */
 static int
 adjust_buffer(FILE *f, struct Pstring *buf)
 {
-	struct stat st;
+#ifdef DEBUG
+	do {} while (&f == NULL);
+#  warning "Using buffer of size 5 for tests"
+	buf->size = 5;
 
+	debug_print("adjust_buffer: malloc(%lu)", (unsigned long) buf->size);
+	buf->data = xmalloc(buf->size);
+#else
+	struct stat st;
 	if (fstat(fileno(f), &st) < 0)
 		return -1;
 	const unsigned long insize = st.st_blksize;
@@ -24,18 +31,14 @@ adjust_buffer(FILE *f, struct Pstring *buf)
 			error(0, errno, "fstat(STDOUT)");
 			return -1;
 		}
-		const unsigned long outsize = st.st_blksize;
 
-		buf->size = MAX(insize, outsize);
-#ifdef DEBUG
-#  warning "Using buffer of size 5 for tests"
-		buf->size = 5;
-#endif
+		buf->size = MAX(insize, (unsigned long) st.st_blksize);
+
 		debug_print("adjust_buffer: realloc(%p, %lu)", buf->data,
 			    (unsigned long) buf->size);
 		buf->data = xrealloc(buf->data, buf->size);
 	}
-
+#endif
 	return 0;
 }
 
@@ -74,12 +77,13 @@ read_block(struct Pstring *dest, FILE *src, struct Stream *stream)
 }
 
 /*
- * Enumerator, XXX.
+ * This function is an /enumerator/ in the terminology of iteratees
+ * [http://okmij.org/ftp/Streams.html].
  *
- * Return value: 0 -- successful completion, -1 -- error.
+ * Return value: 0 - success, -1 - error.
  */
 static int
-process(enum Codec_T ct, const char *inpath, struct Pstring *inbuf)
+process_file(enum Codec_T ct, const char *inpath, struct Pstring *inbuf)
 {
 	FILE *f = NULL;
 
@@ -150,11 +154,11 @@ main(int argc, char **argv)
 
 	int rv = 0;
 	if (argc == 1) {
-		rv = process(ct, "-", &inbuf);
+		rv = process_file(ct, "-", &inbuf);
 	} else {
 		int i;
 		for (i = 1; i < argc; i++)
-			rv |= process(ct, argv[i], &inbuf);
+			rv |= process_file(ct, argv[i], &inbuf);
 	}
 
 	free(inbuf.data);

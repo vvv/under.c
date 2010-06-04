@@ -133,7 +133,6 @@ print_prim(bool enough, struct Stream *str)
 	cont = 0;
 	return IE_DONE;
 }
-
 /* ------------------------------------------------------------------ */
 
 /* Type of elements in `DecSt.caps' list. */
