@@ -4,20 +4,20 @@
 #include "encoder.h"
 
 IterV
-run_codec(enum Codec_T type, void **state, struct Stream *str)
+run_codec(enum Codec_T type, void **z, struct Stream *str)
 {
 	if (type == DECODER) {
-		if (*state == NULL) {
-			*state = xmalloc(sizeof(struct DecSt));
-			init_DecSt(*state);
+		if (*z == NULL) {
+			*z = xmalloc(sizeof(struct DecSt));
+			init_DecSt(*z);
 		}
-		return decode(*state, str);
+		return decode(*z, str);
 	} else if (type == ENCODER) {
-		if (*state == NULL) {
-			*state = xmalloc(sizeof(struct EncSt));
-			init_EncSt(*state);
+		if (*z == NULL) {
+			*z = xmalloc(sizeof(struct EncSt));
+			init_EncSt(*z);
 		}
-		return encode(*state, str);
+		return encode(*z, str);
 	} else {
 		assert(0 == 1);
 	}

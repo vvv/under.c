@@ -1,6 +1,22 @@
 #ifndef _ITERATEE_H
 #define _ITERATEE_H
 
+/*
+ * Iteratee-based I/O
+ *
+ * In essence, an iteratee takes a chunk of the input stream and
+ * returns one of:
+ * - the computed result and the remaining part of the stream;
+ * - the indication that iteratee needs more data, along with the
+ *   continuation to process these data;
+ * - a message to the stream producer (e.g., to rewind the stream) or
+ *   an error indicator.
+ *
+ * See also:
+ *     http://okmij.org/ftp/papers/LL3-collections-enumerators.txt
+ *     http://okmij.org/ftp/Streams.html
+ */
+
 #include <stddef.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -38,13 +54,11 @@ struct Stream {
 	size_t size;
 
 	/*
-	 * Error message (S_EOF only).
+	 * Error message.
 	 *
 	 * NULL if EOF was reached without error; otherwise this is a
 	 * pointer to an error message (or a control message in
 	 * general).
-	 *
-	 * Meaningless for S_CHUNK.
 	 */
 	char *errmsg;
 };
@@ -56,10 +70,12 @@ struct Stream {
  * Do nothing if `*errmsg' is not NULL -- keep the original error
  * message.
  *
- * NOTE: This function calls malloc(3). Be sure to free(3) `*errmsg'
+ * NOTE: This function calls malloc(3); be sure to free(3) `*errmsg'
  * eventually.
  */
 void set_error(char **errmsg, const char *format, ...);
+
+/* -- Some primitive iteratees -------------------------------------- */
 
 /*
  * Attempt to read the next byte of the stream and store it in `*c'.

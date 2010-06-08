@@ -56,14 +56,14 @@ left_bracket(struct Stream *str)
 	if (drop_while(_isspace, str) == IE_CONT)
 		return IE_CONT;
 
-	if (*str->data == '(') {
-		++str->data;
-		--str->size;
-		return IE_DONE;
+	if (*str->data != '(') {
+		set_error(&str->errmsg, "`(' expected");
+		return IE_CONT;
 	}
 
-	set_error(&str->errmsg, "`(' expected");
-	return IE_CONT;
+	++str->data;
+	--str->size;
+	return IE_DONE;
 }
 
 /* Parse '\s*[)(]' regexp, saving met bracket in `*c' */
@@ -137,11 +137,11 @@ read_tag_number(uint32_t *dest, struct Stream *str)
 	     ++str->data, --str->size) {
 		if (++n > 7) {
 			set_error(&str->errmsg,
-				  "Invalid tag number (too many digits)");
+				  "Invalid tag number: too many digits");
 			return IE_CONT;
 		}
 
-		*dest = 10 * (*dest) + (*str->data - '0');
+		*dest = 10*(*dest) + (*str->data - '0');
 	}
 
 	if (str->size == 0)
@@ -469,6 +469,7 @@ read_tree(struct EncSt *z, struct Stream *str)
 	assert(str->type == S_CHUNK);
 
 	struct Node *cur = curnode(z);
+
 	switch (cont) {
 	case 0:
 		assert(list_empty(&z->bt));

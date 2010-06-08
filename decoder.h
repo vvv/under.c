@@ -4,15 +4,15 @@
 #include "list.h"
 #include "iteratee.h"
 
-/* Decoding state. */
+/* Decoding state */
 struct DecSt {
-	uint32_t depth; /* Current depth within tag hierarchy. */
+	uint32_t depth; /* Current depth within tag hierarchy */
 
 	/*
 	 * List of remaining capacities.
 	 *
 	 * Capacity here is the number of bytes left in given
-	 * container.
+	 * container (tag).
 	 */
 	struct list_head caps;
 };
@@ -25,10 +25,14 @@ init_DecSt(struct DecSt *z)
 }
 
 /*
- * Decode DER data.  [enumeratee]
+ * Decode DER data.
  *
  * @z: seed
  * @master: master stream
+ *
+ * This function is an enumeratee - iteratee and enumerator at the
+ * same time - according to Oleg Kiselyov's terminology.
+ * See <http://okmij.org/ftp/Haskell/Iteratee/IterateeM.hs>.
  */
 IterV decode(struct DecSt *z, struct Stream *master);
 

@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <sys/stat.h>
 #include <assert.h>
+#include <libgen.h>
 #include "util.h"
 #include "codec.h"
 
@@ -140,16 +141,41 @@ process_file(enum Codec_T ct, const char *inpath, struct Pstring *inbuf)
 	return retval;
 }
 
+static void
+usage(char *argv0)
+{
+	const char *s = basename(argv0);
+	printf("Usage: %s [-e] [FILE]...\n"
+	       "Decode DER from FILE(s), or standard input, to S-expressions.\n"
+	       "\n"
+	       "  -e      encode S-expressions to DER data\n"
+	       "  --help  display this help and exit\n\n"
+	       "With no FILE, or when FILE is -, read standard input.\n"
+	       "\n"
+	       "Examples:\n"
+	       "  %s f - g  Decode f's contents, then standard input,"
+	       " then g's contents.\n"
+	       "  %s -e     Encode standard input to standard output.\n"
+	       "\n"
+	       "Report bugs to valery.vv@gmail.com\n"
+	       "Home page: <http://github.com/vvv/under.c>\n", s, s, s);
+}
+
 int
 main(int argc, char **argv)
 {
 	struct Pstring inbuf = { 0, NULL };
 	enum Codec_T ct = DECODER;
 
-	if (argc > 1 && streq(argv[1], "-e")) {
-		ct = ENCODER;
-		++argv;
-		--argc;
+	if (argc > 1) {
+		if (streq(argv[1], "-e")) {
+			ct = ENCODER;
+			++argv;
+			--argc;
+		} else if (streq(argv[1], "--help")) {
+			usage(*argv);
+			return 0;
+		}
 	}
 
 	int rv = 0;

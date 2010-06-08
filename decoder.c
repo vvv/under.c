@@ -7,12 +7,12 @@
 
 /*
  * Parse tag identifier and length octets and store decoded attributes
- * in `*tag'.
+ * in a `*tag'.
  */
 static IterV
 decode_header(struct ASN1_Header *tag, struct Stream *str)
 {
-	static int cont = 0; /* Point to continue execution from */
+	static int cont = 0; /* Position to continue execution from */
 	static size_t len_sz; /* Number of length octets, excluding initial */
 
 	uint8_t c;
@@ -28,12 +28,10 @@ decode_header(struct ASN1_Header *tag, struct Stream *str)
 		tag->cls = (c & 0xc0) >> 6;
 		tag->cons_p = (c & 0x20) != 0;
 
-		if ((c & 0x1f) == 0x1f) {
+		if ((tag->num = c & 0x1f) == 0x1f)
 			tag->num = 0; /* tag number > 30 */
-		} else {
-			tag->num = c & 0x1f;
+		else
 			goto tagnum_done;
-		}
 
 		cont = 1;
 	case 1: /* Tag number > 30 (``high'' tag number) */
@@ -90,7 +88,7 @@ tagnum_done:
 }
 
 /*
- * Print hex dump of primitive encoding.
+ * Print hex dump of a primitive encoding.
  *
  * @enough: Are there enough bytes in `str' to reach the end of tag?
  */
@@ -135,7 +133,7 @@ print_prim(bool enough, struct Stream *str)
 }
 /* ------------------------------------------------------------------ */
 
-/* Type of elements in `DecSt.caps' list. */
+/* Type of elements of `DecSt.caps' list */
 struct Capacity {
 	struct list_head h;
 	size_t value;
@@ -259,7 +257,6 @@ IterV
 decode(struct DecSt *z, struct Stream *master)
 {
 	static bool header_p = true; /* Do we parse tag header at this step? */
-	static struct Stream str; /* Substream, passed to an iteratee */
 	static struct ASN1_Header tag;
 
 	if (master->type == S_EOF) {
@@ -271,14 +268,14 @@ decode(struct DecSt *z, struct Stream *master)
 		}
 	}
 
+	struct Stream str; /* Substream, passed to an iteratee */
 	str.type = master->type;
 	str.data = master->data;
 	str.errmsg = master->errmsg;
 
-	for (;;) { /* XXX get rid of the loop */
-		str.size = z->depth == 0 ? master->size :
-			MIN(remcap(z), master->size);
-		const size_t orig_size = str.size;
+	for (;;) {
+		const size_t orig_size = str.size = z->depth == 0 ?
+			master->size : MIN(remcap(z), master->size);
 		debug_show_decoder_state(z, &str, master, " %s", header_p ?
 					 "decode_header" : "print_prim");
 
