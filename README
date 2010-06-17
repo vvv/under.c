@@ -14,7 +14,10 @@ switching centers [4], etc.
 `under' utility can be employed to create custom DER files for testing
 DER-processing software.
 
-Examples:
+It is distributed under the GNU General Public License -- see the
+accompanying COPYING file for more details.
+
+EXAMPLES:
 
     $ under 1.der
     (p1
