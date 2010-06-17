@@ -275,7 +275,10 @@ _primval(struct Pstring *dest, struct EncSt *z, struct Stream *str)
 	}
 }
 
-/* Parse '\s*([0-9a-zA-Z]{2}(\s+[0-9a-zA-Z]{2})*\s*)?"\s*\)' regexp */
+/*
+ * Read a primitive value, updating `*dest' p-string.
+ * Parse '\s*([0-9a-zA-Z]{2}(\s+[0-9a-zA-Z]{2})*\s*)?"\s*\)' regexp.
+ */
 static IterV
 read_primitive(struct Pstring *dest, struct EncSt *z, struct Stream *str)
 {
@@ -316,8 +319,8 @@ read_primitive(struct Pstring *dest, struct EncSt *z, struct Stream *str)
 }
 
 /*
- * Append encoding of "high" tag number to accumulator.
- * Note, that tag number is expected to be greater than 30.
+ * Append encoding of "high" tag number to an accumulator.
+ * Note, that the tag number is expected to be greater than 30.
  */
 static int
 encode_htagnum(uint32_t n, struct Pstring *acc, char **errmsg)
@@ -337,10 +340,10 @@ encode_htagnum(uint32_t n, struct Pstring *acc, char **errmsg)
 
 union U_Header {
 	struct ASN1_Header rec; /* Intermediate representation */
-	struct Pstring enc; /* DER encoding */
+	struct Pstring enc; /* Its DER encoding */
 };
 
-/* Encode tag header and write the encoded data to accumulator */
+/* Encode tag header and write the encoding to accumulator */
 static int
 encode_header(union U_Header *io, struct Pstring *acc, char **errmsg)
 {
@@ -367,7 +370,7 @@ encode_header(union U_Header *io, struct Pstring *acc, char **errmsg)
 		++r.size;
 	} else { /* long length */
 		const uint64_t ben = htobe64(h->len);
-		const uint8_t *p = (const void *)&ben;
+		const uint8_t *p = (void *) &ben;
 		const uint8_t *end = p + sizeof(ben);
 
 		while (*p == 0 && p < end)
@@ -390,19 +393,19 @@ struct Node {
 	struct Node *next, /* Next sibling; NULL for the last node */
 		*child; /* First child of this node; NULL for a leaf node */
 
-	union U_Header header; /* Tag header -- i.e., identifier and length */
+	union U_Header header; /* Tag header (i.e., identifier and length) */
 
 	/* DER encoding of primitive contents; NULL for constructed tags */
 	struct Pstring *contents;
 };
 
-/* An element of backtrace */
+/* Backtrace element */
 struct Frame {
 	struct list_head h;
-	struct Node *node; /* Encoding tree node this frame points to */
+	struct Node *node; /* The encoding tree node this frame points to */
 };
 
-/* Return the current node or NULL, if the backtrace is empty */
+/* Return the current node; return NULL if the backtrace is empty */
 static inline struct Node *
 curnode(const struct EncSt *z)
 {
@@ -423,10 +426,10 @@ _parent(const struct EncSt *z)
 }
 
 /*
- * Address of the `.header.rec.len' member of the current node's parent.
+ * Address of parent's `.header.rec.len' member.
  *
  * Note, that the backtrace is expected to contain at least two frames.
- * And you better be sure that the header of the parent is not encoded yet.
+ * And you better be sure that the parent's header is not encoded yet.
  */
 static inline size_t *
 parent_len(const struct EncSt *z)
@@ -465,8 +468,8 @@ pop_frame(struct EncSt *z)
 IterV
 read_tree(struct EncSt *z, struct Stream *str)
 {
-	static int cont = 0;
 	assert(str->type == S_CHUNK);
+	static int cont = 0;
 
 	struct Node *cur = curnode(z);
 
@@ -562,7 +565,7 @@ putps(const struct Pstring *s)
 	fwrite(s->data, s->size, 1, stdout);
 }
 
-/* Write encoded data to stdout, freeing allocated resources */
+/* Write encoded data to stdout; free allocated resources */
 static void
 write_tree(struct EncSt *z)
 {
