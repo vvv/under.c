@@ -27,7 +27,7 @@
 #include "util.h"
 
 static uint8_t *encbuf = NULL;
-enum { ENCBUF_SIZE = 512 };
+enum { ENCBUF_SIZE = 1024 };
 
 void
 init_EncSt(struct EncSt *z)
@@ -112,9 +112,9 @@ contents_type(bool *consp, struct Stream *str)
 	return IE_DONE;
 }
 
-/* Parse '\s*[uacp]' regexp */
+/* Parse '\s*[uacp)]' regexp */
 static IterV
-read_tag_class(enum Tag_Class *dest, struct Stream *str)
+read_tag_class(enum Tag_Class *dest, bool *empty_cons_p, struct Stream *str)
 {
 	if (drop_while(_isspace, str) == IE_CONT)
 		return IE_CONT;
@@ -124,6 +124,7 @@ read_tag_class(enum Tag_Class *dest, struct Stream *str)
 	case 'a': *dest = TC_APPLICATION; break;
 	case 'c': *dest = TC_CONTEXT; break;
 	case 'p': *dest = TC_PRIVATE; break;
+	case ')': *empty_cons_p = true; break;
 	default:
 		set_error(&str->errmsg, "Invalid tag class specification");
 		return IE_CONT;
@@ -170,16 +171,18 @@ read_tag_number(uint32_t *dest, struct Stream *str)
 	return IE_DONE;
 }
 
-/* Parse '\s*[uacp][0-9]+\s+' regexp */
+/* Parse '\s*([uacp][0-9]+\s+|\))' regexp */
 IterV
-read_header(struct ASN1_Header *tag, struct Stream *str)
+read_header(struct ASN1_Header *tag, bool *empty_cons_p, struct Stream *str)
 {
 	static int cont = 0;
 
 	switch (cont) {
 	case 0:
-		if (read_tag_class(&tag->cls, str) == IE_CONT)
+		if (read_tag_class(&tag->cls, empty_cons_p, str) == IE_CONT)
 			return IE_CONT;
+		if (*empty_cons_p)
+			break;
 
 		tag->num = 0;
 		cont = 1;
@@ -479,6 +482,7 @@ read_tree(struct EncSt *z, struct Stream *str)
 	static int cont = 0;
 
 	struct Node *cur = curnode(z);
+	bool null; /* true for empty constructed encodings, false otherwise */
 
 	switch (cont) {
 	case 0:
@@ -493,8 +497,16 @@ read_tree(struct EncSt *z, struct Stream *str)
 header:
 		cont = 1;
 	case 1:
-		if (read_header(&cur->header.rec, str) == IE_CONT)
+		null = false;
+		if (read_header(&cur->header.rec, &null, str) == IE_CONT)
 			return IE_CONT;
+
+		if (null) {
+			if (at_root_frame(z))
+				break;
+			else
+				goto tag_end;
+		}
 
 		cont = 2;
 	case 2:
@@ -523,6 +535,7 @@ header:
 			return IE_CONT; /* error */
 		*parent_len(z) += cur->header.enc.size + cur->contents->size;
 
+tag_end:
 		cont = 4;
 	case 4:
 		for (;;) {

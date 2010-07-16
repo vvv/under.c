@@ -163,25 +163,6 @@ remcap(const struct DecSt *z)
 	return capacity(z->caps.next);
 }
 
-#ifdef DEBUG
-static void
-check_DecSt_invariant(const struct DecSt *z)
-{
-	uint32_t len = 0;
-	const struct list_head *p;
-
-	__list_for_each(p, &z->caps) {
-		assert(list_is_last(p, &z->caps) ||
-		       capacity(p) <= capacity(p->next));
-		++len;
-	}
-
-	assert(len == z->depth);
-}
-#else
-#  define check_DecSt_invariant(...)
-#endif
-
 /*
  * Is there enough capacity for that many bytes?
  *
@@ -211,6 +192,25 @@ decrease_capacities(size_t delta, struct DecSt *z)
 		list_entry(p, struct Capacity, h)->value -= delta;
 }
 
+#ifdef DEBUG
+static void
+check_DecSt_invariant(const struct DecSt *z)
+{
+	uint32_t len = 0;
+	const struct list_head *p;
+
+	__list_for_each(p, &z->caps) {
+		assert(list_is_last(p, &z->caps) ||
+		       capacity(p) <= capacity(p->next));
+		++len;
+	}
+
+	assert(len == z->depth);
+}
+#else
+#  define check_DecSt_invariant(...)
+#endif
+
 /*
  * Remove "drained off" capacities from `z->caps' list, freeing their
  * memory. Decrease `z->depth' by the number of deleted elements and
@@ -230,6 +230,8 @@ delete_zero_capacities(struct DecSt *z)
 		--z->depth;
 		putchar(')');
 	}
+
+	check_DecSt_invariant(z);
 }
 
 #ifdef DEBUG
@@ -281,8 +283,9 @@ decode(struct DecSt *z, struct Stream *master)
 	str.errmsg = master->errmsg;
 
 	for (;;) {
-		const size_t orig_size = str.size = z->depth == 0 ?
+		str.size = z->depth == 0 ?
 			master->size : MIN(remcap(z), master->size);
+		const size_t orig_size = str.size;
 		debug_show_decoder_state(z, &str, master, " %s", header_p ?
 					 "decode_header" : "print_prim");
 
@@ -291,6 +294,7 @@ decode(struct DecSt *z, struct Stream *master)
 		assert(indic == IE_DONE || indic == IE_CONT);
 
 		decrease_capacities(orig_size - str.size, z);
+
 		master->data = str.data;
 		master->size -= orig_size - str.size;
 		master->errmsg = str.errmsg;
@@ -301,10 +305,19 @@ decode(struct DecSt *z, struct Stream *master)
 			return IE_CONT;
 
 		/* IE_DONE */
-		delete_zero_capacities(z);
-		check_DecSt_invariant(z);
-
 		if (header_p) {
+			printf("(%c%u", "uacp"[tag.cls], tag.num);
+
+			if (tag.len == 0) {
+				fputs(tag.cons_p ? " ()" : " \"\"", stdout);
+				add_capacity(0, z);
+			}
+
+			delete_zero_capacities(z);
+
+			if (tag.len == 0)
+				goto line_feed;
+
 			if (!contained_p(tag.len, z)) {
 				set_error(&master->errmsg,
 					  "Tag is too big for its container");
@@ -312,16 +325,17 @@ decode(struct DecSt *z, struct Stream *master)
 			}
 			add_capacity(tag.len, z);
 
-			printf("(%c%u", "uacp"[tag.cls], tag.num);
 			if (!tag.cons_p) {
 				header_p = false;
 				putchar(' ');
 				continue;
 			}
 		} else {
+			delete_zero_capacities(z);
 			header_p = true;
 		}
 
+line_feed:
 		putchar('\n');
 		uint32_t i;
 		for (i = 0; i < z->depth; ++i)
