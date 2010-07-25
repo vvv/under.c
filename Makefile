@@ -1,8 +1,10 @@
 SHELL = /bin/sh
 .PHONY: clean
 
-# CPPFLAGS = -DDEBUG
+# CPPFLAGS = -DDEBUG -DFILLERS
 # CFLAGS = -g -Wall -Wextra
+
+CPPFLAGS = -DFILLERS
 CFLAGS = -O3 -Wall -Wextra
 
 PROG = under

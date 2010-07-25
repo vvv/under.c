@@ -12,12 +12,24 @@
 #include "asn1.h"
 #include "util.h"
 
+#ifdef FILLERS
+static inline bool
+isfiller(uint8_t c)
+{
+	return c == 0xff;
+}
+#endif
+
 /*
  * Parse tag identifier and length octets and store decoded attributes
  * in a `*tag'.
  */
 static IterV
+#ifdef FILLERS
+decode_header(struct ASN1_Header *tag, struct Stream *str, bool at_root_p)
+#else
 decode_header(struct ASN1_Header *tag, struct Stream *str)
+#endif
 {
 	static int cont = 0; /* Position to continue execution from */
 	static size_t len_sz; /* Number of length octets, excluding initial */
@@ -25,7 +37,14 @@ decode_header(struct ASN1_Header *tag, struct Stream *str)
 	uint8_t c;
 
 	switch (cont) {
-	case 0: /* Identifier octet(s) -- cases 0..2 */
+	case 0:
+#ifdef FILLERS
+		if (at_root_p && drop_while(isfiller, str) == IE_CONT)
+			return IE_CONT;
+#endif
+
+		cont = 1;
+	case 1: /* Identifier octet(s) -- cases 0..2 */
 		if (str->type == S_EOF)
 			return IE_DONE;
 
@@ -40,8 +59,8 @@ decode_header(struct ASN1_Header *tag, struct Stream *str)
 		else
 			goto tagnum_done;
 
-		cont = 1;
-	case 1: /* Tag number > 30 (``high'' tag number) */
+		cont = 2;
+	case 2: /* Tag number > 30 (``high'' tag number) */
 		for (; str->size > 0 && *str->data & 0x80;
 		     ++str->data, --str->size)
 			tag->num = (tag->num << 7) | (*str->data & 0x7f);
@@ -57,8 +76,8 @@ tagnum_done:
 			return IE_CONT;
 		}
 
-		cont = 2;
-	case 2: /* Initial length octet */
+		cont = 3;
+	case 3: /* Initial length octet */
 		if (head(&c, str) == IE_CONT)
 			return IE_CONT;
 
@@ -76,8 +95,8 @@ tagnum_done:
 			break;
 		}
 
-		cont = 3;
-	case 3: /* Subsequent length octet(s) */
+		cont = 4;
+	case 4: /* Subsequent length octet(s) */
 		for (; str->size > 0 && len_sz > 0;
 		     --len_sz, ++str->data, --str->size)
 			tag->len = (tag->len << 8) | *str->data;
@@ -289,8 +308,13 @@ decode(struct DecSt *z, struct Stream *master)
 		debug_show_decoder_state(z, &str, master, " %s", header_p ?
 					 "decode_header" : "print_prim");
 
-		const IterV indic = header_p ? decode_header(&tag, &str) :
-			print_prim(remcap(z) <= str.size, &str);
+		const IterV indic = header_p
+#ifdef FILLERS
+			? decode_header(&tag, &str, z->depth == 0)
+#else
+			? decode_header(&tag, &str)
+#endif
+			: print_prim(remcap(z) <= str.size, &str);
 		assert(indic == IE_DONE || indic == IE_CONT);
 
 		decrease_capacities(orig_size - str.size, z);
