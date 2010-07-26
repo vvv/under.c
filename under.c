@@ -23,6 +23,8 @@
 #include "util.h"
 #include "codec.h"
 
+#define VERSION "0.3.1"
+
 /*
  * Adjust buffer to the blocksize of a file.
  *
@@ -163,11 +165,12 @@ static void
 usage(char *argv0)
 {
 	const char *s = basename(argv0);
-	printf("Usage: %s [-e] [FILE]...\n"
+	printf("Usage: %s [OPTION] [FILE]...\n"
 	       "Decode DER from FILE(s), or standard input, to S-expressions.\n"
 	       "\n"
-	       "  -e      encode S-expressions to DER data\n"
-	       "  --help  display this help and exit\n\n"
+	       "  -e, --encode   encode S-expressions to DER data\n"
+	       "  -h, --help     display this help and exit\n"
+	       "      --version  output version information and exit\n\n"
 	       "With no FILE, or when FILE is -, read standard input.\n"
 	       "\n"
 	       "Examples:\n"
@@ -185,13 +188,16 @@ main(int argc, char **argv)
 	struct Pstring inbuf = { 0, NULL };
 	enum Codec_T ct = DECODER;
 
-	if (argc > 1) {
-		if (streq(argv[1], "-e")) {
+	if (argc > 1 && *argv[1] == '-') {
+		if (streq(argv[1], "-e") || streq(argv[1], "--encode")) {
 			ct = ENCODER;
 			++argv;
 			--argc;
-		} else if (streq(argv[1], "--help")) {
+		} else if (streq(argv[1], "-h") || streq(argv[1], "--help")) {
 			usage(*argv);
+			return 0;
+		} else if (streq(argv[1], "--version")) {
+			printf("%s %s\n", basename(*argv), VERSION);
 			return 0;
 		}
 	}
