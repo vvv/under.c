@@ -74,10 +74,10 @@ struct Stream {
 /*
  * Produce formatted error message.
  *
- * Do nothing if `*errmsg' is not NULL -- keep the original error
- * message.
+ * Do nothing if `*errmsg' is not NULL, thus keeping the original
+ * error message.
  *
- * NOTE: This function calls malloc(3); be sure to free(3) `*errmsg'
+ * NOTE: This function calls malloc(3). Be sure to free(3) `*errmsg'
  * eventually.
  */
 void set_error(char **errmsg, const char *format, ...);
