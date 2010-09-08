@@ -43,9 +43,7 @@ cat <<EOF
  * `date -R`
  */
 
-#include <stdint.h>
-
-struct {
+static struct {
 	const char *symbol;
 	uint8_t num;
 } ctt_sym2num[] = {
@@ -57,7 +55,7 @@ echo
 
 seq 0 $(tail -n1 $TMP_CTT | cut -d' ' -f1) | sort >$TMP_SEQ
 
-echo 'uint8_t ctt_num2sym[] = {'
+echo 'static uint8_t ctt_num2sym[] = {'
 sort -k1,1 $TMP_CTT | join -a1 $TMP_SEQ - | sort -k2 | \
     awk '{ print $1, (NF > 1) ? ++i "," : "0," }' | sort -n -k1,1 | \
     cut -d' ' -f2 | head -c-2 | maybe_fold | sed 's/^/\t/'

@@ -1,6 +1,8 @@
 #include <stdint.h>
 #include <stdio.h>
 
+#include "ctt.h"
+
 /* #define _printf(FORMAT, ...)  printf("[" FORMAT "]", ##__VA_ARGS__) */
 
 int
@@ -171,7 +173,7 @@ decode_callTransactionType(const uint8_t *bytes, size_t len)
 	return 0;
 }
 
-XXX
-encode_callTransactionType(XXX)
-{
-}
+/* XXX */
+/* encode_callTransactionType(XXX) */
+/* { */
+/* } */
