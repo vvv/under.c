@@ -27,10 +27,9 @@ OBJ := $(SRC:.c=.o)
  sed -r 's%^(.+)\.o:%$(@D)/\1.d $(@D)/\1.o:%' >$@
 
 libunder_%.so: %.o
-	$(CC) $(LDFLAGS) $(LDLIBS) $^ -o $@
-# XXX What about versioning info?
-# 	gcc -Wall -W -shared -fpic -Wl,-soname,libunder_sr.so.1\
-#  -o libunder_sr.so.1.0.0 sr.c
+	$(CC) $(LDFLAGS) -Wl,-soname,$@.0 $^ -o $@
+# XXX Output file should be versioned.
+# http://tldp.org/HOWTO/Program-Library-HOWTO/shared-libraries.html#AEN95
 
 ctt.h: ctt.in gen-ctt.sh
 	./gen-ctt.sh $< >$@

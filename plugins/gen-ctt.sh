@@ -43,10 +43,11 @@ cat <<EOF
  * `date -R`
  */
 
+/* A mapping of CallTransactionType (CTT) to its numeric value */
 static struct {
 	const char *symbol;
-	uint8_t num;
-} ctt_sym2num[] = {
+	uint8_t number;
+} ctt_dict[] = {
 	{ NULL, 0 },
 EOF
 sort -k2 $TMP_CTT | awk '{ printf("\t{ \"%s\", %d },\n", $2, $1) }'
@@ -55,7 +56,8 @@ echo
 
 seq 0 $(tail -n1 $TMP_CTT | cut -d' ' -f1) | sort >$TMP_SEQ
 
-echo 'static uint8_t ctt_num2sym[] = {'
+echo "/* N-th element is an index of CTT=N in \`ctt_dict' */"
+echo 'static uint8_t ctt_idx[] = {'
 sort -k1,1 $TMP_CTT | join -a1 $TMP_SEQ - | sort -k2 | \
     awk '{ print $1, (NF > 1) ? ++i "," : "0," }' | sort -n -k1,1 | \
     cut -d' ' -f2 | head -c-2 | maybe_fold | sed 's/^/\t/'
