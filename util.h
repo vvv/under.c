@@ -72,6 +72,17 @@ streq(const char *s1, const char *s2)
 	return strcmp(s1, s2) == 0;
 }
 
+/*
+ * Produce formatted error message.
+ *
+ * Do nothing if `*errmsg' is not NULL, thus keeping the original
+ * error message.
+ *
+ * NOTE: This function calls malloc(3). Be sure to free(3) `*errmsg'
+ * eventually.
+ */
+void set_error(char **errmsg, const char *format, ...);
+
 /* Pascal string */
 struct Pstring {
 	size_t size;

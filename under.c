@@ -23,7 +23,7 @@
 #include "util.h"
 #include "codec.h"
 
-#define VERSION "0.3.1"
+#define VERSION "0.3.2"
 
 /*
  * Adjust buffer to the blocksize of a file.

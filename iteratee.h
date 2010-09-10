@@ -71,17 +71,6 @@ struct Stream {
 };
 #define STREAM_INIT { S_EOF, NULL, 0, NULL }
 
-/*
- * Produce formatted error message.
- *
- * Do nothing if `*errmsg' is not NULL, thus keeping the original
- * error message.
- *
- * NOTE: This function calls malloc(3). Be sure to free(3) `*errmsg'
- * eventually.
- */
-void set_error(char **errmsg, const char *format, ...);
-
 /* -- Some primitive iteratees -------------------------------------- */
 
 /*
