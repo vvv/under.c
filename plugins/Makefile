@@ -14,7 +14,7 @@ SHELL = /bin/sh
 CFLAGS += -fpic
 LDFLAGS = -shared
 
-SONAMES := $(SRC:%.c=libunder_%.so)
+SONAMES := $(SRC:%.c=libunder_%.so.0)
 
 all: $(SONAMES)
 
@@ -26,8 +26,8 @@ OBJ := $(SRC:.c=.o)
 	cpp -MM -MG $(CPPFLAGS) $< |\
  sed -r 's%^(.+)\.o:%$(@D)/\1.d $(@D)/\1.o:%' >$@
 
-libunder_%.so: %.o
-	$(CC) $(LDFLAGS) -Wl,-soname,$@.0 $^ -o $@
+libunder_%.so.0: %.o
+	$(CC) $(LDFLAGS) -Wl,-soname,$@ $^ -o $@
 # XXX Output file should be versioned.
 # http://tldp.org/HOWTO/Program-Library-HOWTO/shared-libraries.html#AEN95
 

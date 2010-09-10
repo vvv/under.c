@@ -37,6 +37,8 @@ trap "rm $TMP_CTT $TMP_SEQ" 0
 massage_input <$SRC | grep -v '^$' >$TMP_CTT
 [ -s $TMP_CTT ] || { echo "$SRC: no useful data" >&2; exit 1; }
 
+export LC_COLLATE=C  # the program doesn't call setlocale(3)
+
 cat <<EOF
 /*
  * This file was generated from \`$SRC'
@@ -44,7 +46,7 @@ cat <<EOF
  */
 
 /* A mapping of CallTransactionType (CTT) to its numeric value */
-static struct {
+static struct CTT_Pair {
 	const char *symbol;
 	uint8_t number;
 } ctt_dict[] = {
