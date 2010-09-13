@@ -227,7 +227,7 @@ putbyte(uint8_t c, struct Pstring *dest, char **errmsg)
 	return putmem(&c, 1, dest, errmsg);
 }
 
-/* Parse '\s*([0-9a-zA-Z]{2}(\s+[0-9a-zA-Z]{2})*\s*)?"' regexp */
+/* Parse '\s*([0-9a-fA-F]{2}(\s+[0-9a-fA-F]{2})*\s*)?"' regexp */
 static IterV
 _primval(struct Pstring *dest, struct EncSt *z, struct Stream *str)
 {
@@ -287,7 +287,7 @@ _primval(struct Pstring *dest, struct EncSt *z, struct Stream *str)
 
 /*
  * Read a primitive value, updating `*dest' p-string.
- * Parse '\s*([0-9a-zA-Z]{2}(\s+[0-9a-zA-Z]{2})*\s*)?"\s*\)' regexp.
+ * Parse '\s*([0-9a-fA-F]{2}(\s+[0-9a-fA-F]{2})*\s*)?"\s*\)' regexp.
  */
 static IterV
 read_primitive(struct Pstring *dest, struct EncSt *z, struct Stream *str)
