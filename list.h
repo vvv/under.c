@@ -7,7 +7,7 @@
  * Most of the code is copied verbatim from <linux/list.h>
  * [http://lxr.linux.no/#linux+v2.6.33/include/linux/list.h].
  *
- * `list_entry' is redefined without `container_of' macro.
+ * `list_entry' is redefined to use no `container_of' macro.
  */
 
 /*

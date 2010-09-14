@@ -157,7 +157,7 @@ process_file(enum Codec_T ct, const char *inpath, struct Pstring *inbuf)
 		retval |= fclose(f);
 
 	free(str.errmsg);
-	free_codec(ct, z);
+	free_codec(ct, z); /* XXX malloc/free for each input file is not good */
 	return retval;
 }
 

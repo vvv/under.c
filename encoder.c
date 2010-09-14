@@ -533,9 +533,9 @@ header:
 			push_frame(cur, z);
 
 			goto header;
-		} else {
-			cur->contents = new_zeroed(struct Pstring);
 		}
+
+		cur->contents = new_zeroed(struct Pstring);
 
 		cont = 3;
 	case 3:
@@ -593,7 +593,7 @@ tag_end:
 	return IE_DONE;
 }
 
-/* Write Pascal string to stdout */
+/* Write Pascal string to stdout  [XXX Move to `util.h'?] */
 static inline void
 putps(const struct Pstring *s)
 {
