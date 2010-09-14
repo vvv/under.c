@@ -322,7 +322,7 @@ read_primitive(struct Pstring *dest, struct EncSt *z, struct Stream *str)
 		return -1;
 	}
 
-	debug_print("read_primitive: %lu bytes read",
+	debug_print("read_primitive: %lu bytes encoded",
 		    (unsigned long) dest->size);
 	cont = 0;
 	return IE_DONE;
@@ -330,7 +330,7 @@ read_primitive(struct Pstring *dest, struct EncSt *z, struct Stream *str)
 
 /*
  * Append encoding of "high" tag number to an accumulator.
- * Note, that the tag number is expected to be greater than 30.
+ * Note, that the first argument is expected to be greater than 30.
  */
 static int
 encode_htagnum(uint32_t n, struct Pstring *acc, char **errmsg)
@@ -348,9 +348,31 @@ encode_htagnum(uint32_t n, struct Pstring *acc, char **errmsg)
 	return putmem(p, buf + sizeof(buf) - p, acc, errmsg);
 }
 
+/*
+ * Append encoding of "long" length to accumulator.
+ *
+ * @n: length value
+ *
+ * Note, that the first argument is expected to be greater than 0x7f.
+ */
+static int
+encode_longlen(size_t n, struct Pstring *acc, char **errmsg)
+{
+	const uint64_t ben = htobe64(n);
+	const uint8_t *p = (void *) &ben;
+	const uint8_t *end = p + sizeof(ben);
+
+	while (*p == 0 && p < end)
+		++p;
+
+	return (putbyte(0x80 | (end - p), acc, errmsg) == 0 &&
+		putmem(p, end - p, acc, errmsg) == 0) ?
+		0 : -1;
+}
+
 union U_Header {
 	struct ASN1_Header rec; /* Intermediate representation */
-	struct Pstring enc; /* Its DER encoding */
+	struct Pstring enc; /* DER encoding */
 };
 
 /* Encode tag header and write the encoding to accumulator */
@@ -379,17 +401,10 @@ encode_header(union U_Header *io, struct Pstring *acc, char **errmsg)
 			return -1;
 		++r.size;
 	} else { /* long length */
-		const uint64_t ben = htobe64(h->len);
-		const uint8_t *p = (void *) &ben;
-		const uint8_t *end = p + sizeof(ben);
-
-		while (*p == 0 && p < end)
-		       ++p;
-
-		if (putbyte(0x80 | (end - p), acc, errmsg) != 0 ||
-		    putmem(p, end - p, acc, errmsg) != 0)
+		const size_t orig_size = acc->size;
+		if (encode_longlen(h->len, acc, errmsg) != 0)
 			return -1;
-		r.size += 1 + end - p;
+		r.size += orig_size - acc->size;
 	}
 
 	debug_hexdump("encode_header: \\", r.data, r.size);
