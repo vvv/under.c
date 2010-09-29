@@ -20,6 +20,7 @@
 #include <sys/stat.h>
 #include <assert.h>
 #include <libgen.h>
+#include <getopt.h>
 #include "util.h"
 #include "codec.h"
 
@@ -106,6 +107,7 @@ read_block(struct Pstring *dest, FILE *src, struct Stream *stream)
 static int
 process_file(enum Codec_T ct, const char *inpath, struct Pstring *inbuf)
 {
+	debug_print("process_file: `%s'", inpath);
 	FILE *f = NULL;
 
 	if (streq(inpath, "-")) {
@@ -170,7 +172,10 @@ usage(char *argv0)
 	       "\n"
 	       "  -e, --encode   encode S-expressions to DER data\n"
 	       "  -h, --help     display this help and exit\n"
-	       "      --version  output version information and exit\n\n"
+	       "  -V, --version  output version information and exit\n"
+	       "  -f, --format=NAME  interpret tags in accordance with"
+	       " NAME.conf mapping\n"
+	       "\n"
 	       "With no FILE, or when FILE is -, read standard input.\n"
 	       "\n"
 	       "Examples:\n"
@@ -188,26 +193,43 @@ main(int argc, char **argv)
 	struct Pstring inbuf = { 0, NULL };
 	enum Codec_T ct = DECODER;
 
-	if (argc > 1 && *argv[1] == '-') {
-		if (streq(argv[1], "-e") || streq(argv[1], "--encode")) {
+	const struct option longopts[] = {
+		{ "encode", 0, NULL, 'e' },
+		{ "format", 1, NULL, 'f' },
+		{ "help", 0, NULL, 'h' },
+		{ "version", 0, NULL, 'V' }
+	};
+	int c;
+	while ((c = getopt_long(argc, argv, "ef:hV", longopts, NULL)) != -1) {
+		switch (c) {
+		case 'e':
 			ct = ENCODER;
-			++argv;
-			--argc;
-		} else if (streq(argv[1], "-h") || streq(argv[1], "--help")) {
+			break;
+
+		case 'f':
+#warning "XXX Not implemented"
+			fprintf(stderr, "XXX format: %s\n", optarg);
+			break;
+
+		case 'h':
 			usage(*argv);
 			return 0;
-		} else if (streq(argv[1], "--version")) {
+
+		case 'V':
 			printf("%s %s\n", basename(*argv), VERSION);
 			return 0;
+
+		default:
+			return 1;
 		}
 	}
 
 	int rv = 0;
-	if (argc == 1) {
+	if (optind == argc) {
 		rv = process_file(ct, "-", &inbuf);
 	} else {
 		int i;
-		for (i = 1; i < argc; i++)
+		for (i = optind; i < argc; i++)
 			rv |= process_file(ct, argv[i], &inbuf);
 	}
 
