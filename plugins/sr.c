@@ -19,12 +19,11 @@
  * @n: capacity of `dest'
  *
  * Function writes at most `n' bytes, including terminating '\0', to
- * `dest'.
+ * `dest'.  Error message will be stored in `dest' in an error occurs.
  *
  * Return value:
  *    0 - success;
- *   -1 - decoding has failed or resulting string exceeds `n' bytes;
- *        `dest' will contain error message in this case.
+ *   -1 - decoding has failed or resulting string exceeds `n' bytes.
  */
 int
 decode_callTransactionType(const struct Pstring *src, char *dest, size_t n)
@@ -39,7 +38,7 @@ decode_callTransactionType(const struct Pstring *src, char *dest, size_t n)
 
 	if (x >= ARRAY_SIZE(ctt_idx) || ctt_idx[x] == 0) {
 		snprintf(dest, n, "decode_callTransactionType:"
-			 " unsupported value (%u)", x);
+			 " unsupported value: %u", x);
 		return -1;
 	}
 

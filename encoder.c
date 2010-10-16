@@ -143,7 +143,7 @@ read_tag_number(uint32_t *dest, struct Stream *str)
 
 	for (; str->size > 0 && isdigit(*str->data);
 	     ++str->data, --str->size) {
-		if (++n > 7) {
+		if (++n > 10) {
 			set_error(&str->errmsg,
 				  "Invalid tag number: too many digits");
 			return IE_CONT;
@@ -165,9 +165,14 @@ read_tag_number(uint32_t *dest, struct Stream *str)
 		set_error(&str->errmsg, "White-space character expected");
 		return IE_CONT;
 	}
-
 	++str->data;
 	--str->size;
+
+	if (*dest & 0xc0000000) { /* tagnum exceeds 30 bits */
+		set_error(&str->errmsg, "Enormous tag number", *dest);
+		return IE_CONT;
+	}
+
 	return IE_DONE;
 }
 

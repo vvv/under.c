@@ -139,4 +139,19 @@ static inline int list_empty(const struct list_head *head)
 #define __list_for_each(pos, head) \
 	for (pos = (head)->next; pos != (head); pos = pos->next)
 
+/*
+ * Double linked lists with a single pointer list head.
+ * Mostly useful for hash tables where the two pointer list head is
+ * too wasteful.
+ * You lose the ability to access the tail in O(1).
+ */
+
+struct hlist_head {
+	struct hlist_node *first;
+};
+
+struct hlist_node {
+	struct hlist_node *next, **pprev;
+};
+
 #endif /* _LIST_H */

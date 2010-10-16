@@ -1,5 +1,6 @@
 /*
  * $ cd plugins
+ * $ make
  * $ ln -s libunder_sr.so.0 libunder_sr.so
  * $ gcc -g -Wall -W -I.. -L. -lunder_sr -Wl,-rpath,`pwd` ../tests/test_sr.c \
  *       -o /tmp/1
@@ -8,8 +9,8 @@
 #include <stdio.h>
 #include "util.h"
 
-extern int decode_callTransactionType(const struct Pstring *src,
-				      char *dest, size_t n);
+extern int decode_callTransactionType(const struct Pstring *src, char *dest,
+				      size_t n);
 extern int _ctt_tonum(const char *src, uint8_t *dest);
 
 int main(void)
@@ -40,8 +41,8 @@ int main(void)
 
 	*s = 126;
 	assert(decode_callTransactionType(&src, dest, sizeof(dest)) == -1);
-	assert(streq(dest, "decode_callTransactionType: unsupported value"
-		     " (126)"));
+	assert(streq(dest, "decode_callTransactionType: unsupported value:"
+		     " 126"));
 
 	uint8_t n = 0;
 	assert(_ctt_tonum("transit", &n) == 0);

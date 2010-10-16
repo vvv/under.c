@@ -70,9 +70,9 @@ decode_header(struct ASN1_Header *tag, struct Stream *str)
 		tag->num = (tag->num << 7) | (c & 0x7f);
 
 tagnum_done:
-		if (tag->num > 1000) {
-			set_error(&str->errmsg,
-				  "XXX Tag number is too big: %u", tag->num);
+		if (tag->num & 0xc0000000) { /* exceeds 30 bits */
+			set_error(&str->errmsg, "Tag number is too big: %u",
+				  tag->num);
 			return IE_CONT;
 		}
 
