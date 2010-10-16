@@ -114,7 +114,7 @@ contents_type(bool *consp, struct Stream *str)
 
 /* Parse '\s*[uacp)]' regexp */
 static IterV
-read_tag_class(enum Tag_Class *dest, bool *empty_cons_p, struct Stream *str)
+read_tag_class(enum Tag_Class *dest, bool *nil, struct Stream *str)
 {
 	if (drop_while(_isspace, str) == IE_CONT)
 		return IE_CONT;
@@ -124,7 +124,7 @@ read_tag_class(enum Tag_Class *dest, bool *empty_cons_p, struct Stream *str)
 	case 'a': *dest = TC_APPLICATION; break;
 	case 'c': *dest = TC_CONTEXT; break;
 	case 'p': *dest = TC_PRIVATE; break;
-	case ')': *empty_cons_p = true; break;
+	case ')': *nil = true; break;
 	default:
 		set_error(&str->errmsg, "Invalid tag class specification");
 		return IE_CONT;
@@ -178,15 +178,15 @@ read_tag_number(uint32_t *dest, struct Stream *str)
 
 /* Parse '\s*([uacp][0-9]+\s+|\))' regexp */
 IterV
-read_header(struct ASN1_Header *tag, bool *empty_cons_p, struct Stream *str)
+read_header(struct ASN1_Header *tag, bool *nil, struct Stream *str)
 {
 	static int cont = 0;
 
 	switch (cont) {
 	case 0:
-		if (read_tag_class(&tag->cls, empty_cons_p, str) == IE_CONT)
+		if (read_tag_class(&tag->cls, nil, str) == IE_CONT)
 			return IE_CONT;
-		if (*empty_cons_p)
+		if (*nil)
 			break;
 
 		tag->num = 0;
@@ -471,7 +471,9 @@ parent_len(const struct EncSt *z)
 static bool
 at_root_frame(const struct EncSt *z)
 {
+#if 0 /*XXX*/
 	assert(!list_empty(&z->bt));
+#endif /*XXX*/
 	return list_is_last(z->bt.next, &z->bt);
 }
 
@@ -502,7 +504,7 @@ read_tree(struct EncSt *z, struct Stream *str)
 	static int cont = 0;
 
 	struct Node *cur = curnode(z);
-	bool null; /* true for empty constructed encodings, false otherwise */
+	bool nil; /* true for empty values -- `()', false otherwise */
 
 	switch (cont) {
 	case 0:
@@ -517,15 +519,17 @@ read_tree(struct EncSt *z, struct Stream *str)
 header:
 		cont = 1;
 	case 1:
-		null = false;
-		if (read_header(&cur->header.rec, &null, str) == IE_CONT)
+		nil = false;
+		if (read_header(&cur->header.rec, &nil, str) == IE_CONT)
 			return IE_CONT;
 
-		if (null) {
-			if (at_root_frame(z))
+		if (nil) {
+			if (at_root_frame(z)) {
+				pop_frame(z);
 				break;
-			else
+			} else {
 				goto tag_end;
+			}
 		}
 
 		cont = 2;
@@ -590,9 +594,12 @@ tag_end:
 		assert(0 == 1);
 	}
 
-	assert(at_root_frame(z));
-	if (encode_header(&curnode(z)->header, &z->acc, &str->errmsg) != 0)
-		return IE_CONT;
+	if (!list_empty(&z->bt)) {
+		assert(at_root_frame(z));
+		if (encode_header(&curnode(z)->header, &z->acc, &str->errmsg)
+		    != 0)
+			return IE_CONT;
+	}
 
 	cont = 0;
 	return IE_DONE;
@@ -652,7 +659,9 @@ encode(struct EncSt *z, struct Stream *str)
 		if (read_tree(z, str) == IE_CONT)
 			return IE_CONT;
 
-		write_tree(z);
-		assert(list_empty(&z->bt));
+		if (!list_empty(&z->bt)) {
+			write_tree(z);
+			assert(list_empty(&z->bt));
+		}
 	}
 }
