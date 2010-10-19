@@ -23,8 +23,9 @@
 #include <getopt.h>
 #include "util.h"
 #include "codec.h"
+#include "repr.h"
 
-#define VERSION "0.3.2"
+#define VERSION "0.4.0"
 
 /*
  * Adjust buffer to the blocksize of a file.
@@ -105,7 +106,8 @@ read_block(struct Pstring *dest, FILE *src, struct Stream *stream)
  * Return value: 0 - success, -1 - error.
  */
 static int
-process_file(enum Codec_T ct, const char *inpath, struct Pstring *inbuf)
+process_file(enum Codec_T ct, const char *inpath, struct Pstring *inbuf,
+	     const struct hlist_head *repr)
 {
 	debug_print("process_file: `%s'", inpath);
 	FILE *f = NULL;
@@ -138,7 +140,7 @@ process_file(enum Codec_T ct, const char *inpath, struct Pstring *inbuf)
 			break;
 		}
 
-		const IterV indic = run_codec(ct, &z, &str);
+		const IterV indic = run_codec(ct, &z, &str, repr);
 		assert(indic == IE_DONE || indic == IE_CONT);
 		filepos += orig_size - str.size;
 
@@ -192,6 +194,7 @@ main(int argc, char **argv)
 {
 	struct Pstring inbuf = { 0, NULL };
 	enum Codec_T ct = DECODER;
+	struct hlist_head *repr = NULL;
 
 	const struct option longopts[] = {
 		{ "encode", 0, NULL, 'e' },
@@ -207,8 +210,9 @@ main(int argc, char **argv)
 			break;
 
 		case 'f':
-#warning "XXX Not implemented"
-			fprintf(stderr, "XXX format: %s\n", optarg);
+			assert(repr == NULL); /* XXX handle several `-f' */
+			repr = repr_create_htab();
+			repr_fill_htab_XXX(repr); /* XXX use `optarg' */
 			break;
 
 		case 'h':
@@ -226,13 +230,14 @@ main(int argc, char **argv)
 
 	int rv = 0;
 	if (optind == argc) {
-		rv = process_file(ct, "-", &inbuf);
+		rv = process_file(ct, "-", &inbuf, repr);
 	} else {
 		int i;
-		for (i = optind; i < argc; i++)
-			rv |= process_file(ct, argv[i], &inbuf);
+		for (i = optind; i < argc; ++i)
+			rv |= process_file(ct, argv[i], &inbuf, repr);
 	}
 
+	repr_destroy_htab(repr);
 	free(inbuf.data);
 	return -rv;
 }

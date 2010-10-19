@@ -9,6 +9,7 @@
 #define _ASN1_H
 
 #include <stdint.h>
+#include <stdbool.h>
 
 enum Tag_Class { TC_UNIVERSAL, TC_APPLICATION, TC_CONTEXT, TC_PRIVATE };
 

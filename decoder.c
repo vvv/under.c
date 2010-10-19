@@ -11,6 +11,7 @@
 #include "decoder.h"
 #include "asn1.h"
 #include "util.h"
+#include "repr.h"
 
 #ifdef FILLERS
 static inline bool
@@ -330,7 +331,8 @@ decode(struct DecSt *z, struct Stream *master)
 
 		/* IE_DONE */
 		if (header_p) {
-			printf("(%c%u", "uacp"[tag.cls], tag.num);
+			putchar('(');
+			repr_show_header(z->repr_htab, tag.cls, tag.num);
 
 			if (tag.len == 0) {
 				fputs(tag.cons_p ? " ()" : " \"\"", stdout);

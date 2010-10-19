@@ -7,8 +7,21 @@
  * Most of the code is copied verbatim from <linux/list.h>
  * [http://lxr.linux.no/#linux+v2.6.33/include/linux/list.h].
  *
- * `list_entry' is redefined to use no `container_of' macro.
+ * `container_of' comes from <linux/kernel.h>.
  */
+
+#ifndef container_of
+/**
+ * container_of - cast a member of a structure out to the containing structure
+ * @ptr: the pointer to the member.
+ * @type: the type of the container struct this is embedded in.
+ * @member: the name of the member within the struct.
+ *
+ */
+#define container_of(ptr, type, member) ({			\
+	const typeof(((type *)0)->member) *__mptr = (ptr);	\
+	(type *)((char *)__mptr - offsetof(type,member)); })
+#endif
 
 /*
  * Simple doubly linked list implementation.
@@ -105,15 +118,12 @@ static inline int list_empty(const struct list_head *head)
 }
 
 /**
- * list_entry - get the struct for this entry
+ * list_entry - get [the pointer to] the struct for this entry
  * @ptr: the &struct list_head pointer.
  * @type: the type of the struct this is embedded in.
  * @member: the name of the list_struct within the struct.
- *
- * NOTE: This definition differs from the one in <linux/list.h>.
  */
-#define list_entry(ptr, type, member) \
-	((type *)((char *)(ptr) - offsetof(type, member)))
+#define list_entry(ptr, type, member) container_of(ptr, type, member)
 
 /**
  * list_first_entry - get the first element from a list
@@ -153,5 +163,89 @@ struct hlist_head {
 struct hlist_node {
 	struct hlist_node *next, **pprev;
 };
+
+#define INIT_HLIST_HEAD(ptr) ((ptr)->first = NULL)
+static inline void INIT_HLIST_NODE(struct hlist_node *n)
+{
+	n->next = NULL;
+	n->pprev = NULL;
+}
+
+/* static inline int hlist_empty(const struct hlist_head *h) */
+/* { */
+/* 	return !h->first; */
+/* } */
+
+/* static inline void __hlist_del(struct hlist_node *n) */
+/* { */
+/* 	struct hlist_node *next = n->next; */
+/* 	struct hlist_node **pprev = n->pprev; */
+/* 	*pprev = next; */
+/* 	if (next) */
+/* 		next->pprev = pprev; */
+/* } */
+
+/* Make node `n' the head of the hlist pointed to by `h' */
+static inline void hlist_add_head(struct hlist_node *n, struct hlist_head *h)
+{
+	struct hlist_node *first = h->first;
+	n->next = first;
+	if (first)
+		first->pprev = &n->next;
+	h->first = n;
+	n->pprev = &h->first;
+}
+
+/* /\* */
+/*  * Insert node `n' before `next'. */
+/*  * */
+/*  * next must be != NULL */
+/*  *\/ */
+/* static inline void hlist_add_before(struct hlist_node *n, */
+/* 				    struct hlist_node *next) */
+/* { */
+/* 	n->pprev = next->pprev; */
+/* 	n->next = next; */
+/* 	next->pprev = &n->next; */
+/* 	*(n->pprev) = n; */
+/* } */
+
+/* /\* Insert node `next' after `n'. *\/ */
+/* static inline void hlist_add_after(struct hlist_node *n, */
+/* 				   struct hlist_node *next) */
+/* { */
+/* 	next->next = n->next; */
+/* 	n->next = next; */
+/* 	next->pprev = &n->next; */
+
+/* 	if (next->next) */
+/* 		next->next->pprev  = &next->next; */
+/* } */
+
+/**
+ * hlist_entry - get [the pointer to] the struct for this entry
+ * @ptr: the &struct hlist_node pointer.
+ * @type: the type of the struct this is embedded in.
+ * @member: the name of the hlist_node within the struct.
+ */
+#define hlist_entry(ptr, type, member) container_of(ptr, type, member)
+
+/* #define hlist_for_each(pos, head) \ */
+/* 	for (pos = (head)->first; pos; pos = pos->next) */
+
+#define hlist_for_each_safe(pos, n, head) \
+	for (pos = (head)->first; pos && ({ n = pos->next; 1; }); pos = n)
+
+/**
+ * hlist_for_each_entry	- iterate over list of given type
+ * @tpos:	the type * to use as a loop cursor.
+ * @pos:	the &struct hlist_node to use as a loop cursor.
+ * @head:	the head for your list.
+ * @member:	the name of the hlist_node within the struct.
+ */
+#define hlist_for_each_entry(tpos, pos, head, member)                         \
+	for (pos = (head)->first;                                             \
+	     pos && ({ tpos = hlist_entry(pos, typeof(*tpos), member); 1; }); \
+	     pos = pos->next)
 
 #endif /* _LIST_H */

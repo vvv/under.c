@@ -11,12 +11,13 @@
 #include "encoder.h"
 
 IterV
-run_codec(enum Codec_T type, void **z, struct Stream *str)
+run_codec(enum Codec_T type, void **z, struct Stream *str,
+	  const struct hlist_head *repr)
 {
 	if (type == DECODER) {
 		if (*z == NULL) {
 			*z = xmalloc(sizeof(struct DecSt));
-			init_DecSt(*z);
+			init_DecSt(*z, repr);
 		}
 		return decode(*z, str);
 	} else if (type == ENCODER) {

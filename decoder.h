@@ -22,13 +22,21 @@ struct DecSt {
 	 * container (tag).
 	 */
 	struct list_head caps;
+
+	/*
+	 * Pointer to a structure that specifies how to convert tags
+	 * to their human-readable representations (and vice versa).
+	 * The structure is opaque for `decoder.c'.
+	 */
+	const struct hlist_head *repr_htab;
 };
 
 static inline void
-init_DecSt(struct DecSt *z)
+init_DecSt(struct DecSt *z, const struct hlist_head *repr)
 {
 	z->depth = 0;
 	INIT_LIST_HEAD(&z->caps);
+	z->repr_htab = repr;
 }
 
 /*

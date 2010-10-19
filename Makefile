@@ -7,7 +7,7 @@ CFLAGS = -g -Wall -Wextra
 # CFLAGS = -O3 -Wall -Wextra
 
 PROG = under
-SRC = iteratee.c decoder.c encoder.c codec.c under.c util.c
+SRC = iteratee.c decoder.c encoder.c codec.c under.c util.c repr.c
 
 ## ---------------------------------------------------------------------
 ## The stuff below is not supposed to be touched frequently
