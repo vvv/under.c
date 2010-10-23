@@ -116,12 +116,36 @@ plugin_name(char *path)
 }
 
 static void
-add_tag(const char *spec, const char *name, const char *plugin,
-	const char *codec)
+add_repr(struct hlist_head *htab, const char *spec, const char *name,
+	 const char *plugin, const char *codec)
 {
-	debug_print("add_tag: tag=%s name=%s plugin=lib%s.so codec=%s\n",
+	debug_print("add_repr: tag=%s name=%s plugin=lib%s.so codec=%s\n",
 		    spec, name, plugin, codec);
-	XXX_not_implemented;
+
+	enum Tag_Class cls;
+	unsigned long num;
+
+	switch (*spec) {
+	case 'u': cls = TC_UNIVERSAL; break;
+	case 'a': cls = TC_APPLICATION; break;
+	case 'c': cls = TC_CONTEXT; break;
+	case 'p': cls = TC_PRIVATE; break;
+	default:
+		assert(0 == 1);
+	}
+
+	errno = 0;
+	num = strtoul(spec + 1, NULL, 10);
+	assert(errno == 0);
+
+	struct Repr_Attr *attr = xmalloc(sizeof(struct Repr_Attr));
+	INIT_HLIST_NODE(&attr->n);
+	attr->key = tagkey(cls, num);
+	if (asprintf(&attr->name, "%s", name) < 0)
+		die("Out of memory, asprintf failed");
+	attr->decode = NULL; /* XXX */
+
+	hlist_add_head(&attr->n, &htab[hashfn(attr->key)]);
 }
 
 static int
@@ -166,8 +190,8 @@ parse_conf(struct hlist_head *dest, FILE *f, const char *default_plugin,
 		p[groups[1].rm_eo] = p[groups[2].rm_eo] = 0;
 
 		if (groups[3].rm_so == -1) { /* no "plugin.codec" group */
-			add_tag(p + groups[1].rm_so, p + groups[2].rm_so,
-				default_plugin, p + groups[2].rm_so);
+			add_repr(dest, p + groups[1].rm_so, p + groups[2].rm_so,
+				 default_plugin, p + groups[2].rm_so);
 			continue;
 		}
 
@@ -178,11 +202,10 @@ parse_conf(struct hlist_head *dest, FILE *f, const char *default_plugin,
 			p[groups[5].rm_eo] = 0;
 
 		/* XXX shouldn't we return anything? */
-		add_tag(p + groups[1].rm_so,
-			p + groups[2].rm_so,
-			groups[4].rm_so == -1 ?
-			default_plugin : p + groups[4].rm_so,
-			p + groups[groups[5].rm_so == -1 ? 2 : 5].rm_so);		}
+		add_repr(dest, p + groups[1].rm_so, p + groups[2].rm_so,
+			 groups[4].rm_so == -1
+			 ? default_plugin : p + groups[4].rm_so,
+			 p + groups[groups[5].rm_so == -1 ? 2 : 5].rm_so);		}
 
 	retval = 0;
 end:

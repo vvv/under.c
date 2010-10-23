@@ -467,13 +467,13 @@ parent_len(const struct EncSt *z)
 	return &_parent(z)->header.rec.len;
 }
 
-/* Test whether there is exactly one frame in the backtrace */
-static bool
+/*
+ * Test whether there is exactly one frame in the backtrace.
+ * Note, that `z->bt' list is expected to be not empty.
+ */
+static inline bool
 at_root_frame(const struct EncSt *z)
 {
-#if 0 /*XXX*/
-	assert(!list_empty(&z->bt));
-#endif /*XXX*/
 	return list_is_last(z->bt.next, &z->bt);
 }
 
