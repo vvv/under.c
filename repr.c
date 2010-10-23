@@ -119,8 +119,13 @@ static void
 add_repr(struct hlist_head *htab, const char *spec, const char *name,
 	 const char *plugin, const char *codec)
 {
-	debug_print("add_repr: tag=%s name=%s plugin=lib%s.so codec=%s\n",
-		    spec, name, plugin, codec);
+#ifdef DEBUG
+	if (codec == NULL)
+		debug_print("add_repr: tag=%s name=%s", spec, name);
+	else
+		debug_print("add_repr: tag=%s name=%s plugin=lib%s.so codec=%s",
+			    spec, name, plugin, codec);
+#endif
 
 	enum Tag_Class cls;
 	unsigned long num;
@@ -145,6 +150,7 @@ add_repr(struct hlist_head *htab, const char *spec, const char *name,
 		die("Out of memory, asprintf failed");
 	attr->decode = NULL; /* XXX */
 
+	/* XXX TODO What if an entry with such key exists already? */
 	hlist_add_head(&attr->n, &htab[hashfn(attr->key)]);
 }
 
@@ -159,7 +165,7 @@ parse_conf(struct hlist_head *dest, FILE *f, const char *default_plugin,
 #define ID "[a-zA-Z][a-zA-Z0-9_-]*"
 	assert(regcomp(&re_entry, "^([uacp][0-9]+)"
 		       "[ \t]+(" ID ")"
-		       "([ \t]+(" ID "\\.)?(" ID ")?)?"
+		       "([ \t]+(" ID "\\.)?(" ID "))?"
 		       "\n?$", REG_EXTENDED) == 0);
 #undef ID
 	regmatch_t groups[re_entry.re_nsub + 1];
@@ -189,23 +195,21 @@ parse_conf(struct hlist_head *dest, FILE *f, const char *default_plugin,
 
 		p[groups[1].rm_eo] = p[groups[2].rm_eo] = 0;
 
-		if (groups[3].rm_so == -1) { /* no "plugin.codec" group */
+		if (groups[3].rm_so == -1) {
 			add_repr(dest, p + groups[1].rm_so, p + groups[2].rm_so,
-				 default_plugin, p + groups[2].rm_so);
+				 NULL, NULL);
 			continue;
 		}
 
 		if (groups[4].rm_so != -1)
 			p[groups[4].rm_eo - 1] = 0;
+		p[groups[5].rm_eo] = 0;
 
-		if (groups[5].rm_so != -1)
-			p[groups[5].rm_eo] = 0;
-
-		/* XXX shouldn't we return anything? */
 		add_repr(dest, p + groups[1].rm_so, p + groups[2].rm_so,
-			 groups[4].rm_so == -1
-			 ? default_plugin : p + groups[4].rm_so,
-			 p + groups[groups[5].rm_so == -1 ? 2 : 5].rm_so);		}
+			 groups[4].rm_so == -1 ?
+			 default_plugin : p + groups[4].rm_so,
+			 p + groups[5].rm_so);
+	}
 
 	retval = 0;
 end:
