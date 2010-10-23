@@ -10,9 +10,10 @@
 
 #include "asn1.h"
 
+/* XXX TODO documentation */
 struct hlist_head * repr_create_htab(void);
 void repr_destroy_htab(struct hlist_head *htab);
-void repr_fill_htab_XXX(struct hlist_head *htab);
+int repr_read_conf(struct hlist_head *dest, const char *path);
 
 /* Print tag header's representation to stdout */
 void repr_show_header(const struct hlist_head *htab, enum Tag_Class cls,

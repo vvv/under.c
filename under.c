@@ -210,9 +210,17 @@ main(int argc, char **argv)
 			break;
 
 		case 'f':
-			assert(repr == NULL); /* XXX handle several `-f' */
+			if (repr != NULL) {
+				repr_destroy_htab(repr);
+				error(1, 0, "Multiple -f/--format options are"
+				      " not allowed");
+			}
+
 			repr = repr_create_htab();
-			repr_fill_htab_XXX(repr); /* XXX use `optarg' */
+			if (repr_read_conf(repr, optarg) != 0) {
+				repr_destroy_htab(repr);
+				return 1;
+			}
 			break;
 
 		case 'h':

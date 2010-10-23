@@ -8,6 +8,9 @@
 #define _GNU_SOURCE
 #include <stdio.h>
 #include <assert.h>
+#include <regex.h>
+#include <ctype.h>
+
 #include "repr.h"
 #include "list.h"
 #include "hash.h"
@@ -96,7 +99,131 @@ repr_show_header(const struct hlist_head *htab, enum Tag_Class cls,
 		printf(":%s", r->name);
 }
 
-#if 1 /* XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX */
+static const char *
+plugin_name(char *path)
+{
+	char *fn = basename(path);
+	char *p = strrchr(fn, '.');
+
+	if (p == NULL || !streq(p, ".conf")) {
+		fputs("-f/--format parameter must have `.conf' suffix\n",
+		      stderr);
+		return NULL;
+	}
+	*p = 0;
+
+	return fn;
+}
+
+static void
+add_tag(const char *spec, const char *name, const char *plugin,
+	const char *codec)
+{
+	debug_print("add_tag: tag=%s name=%s plugin=lib%s.so codec=%s\n",
+		    spec, name, plugin, codec);
+	XXX_not_implemented;
+}
+
+static int
+parse_conf(struct hlist_head *dest, FILE *f, const char *default_plugin,
+	   const char *path)
+{
+	regex_t re_rstrip; /* trailing whitespace and/or comments */
+	assert(regcomp(&re_rstrip, "[ \t]*(#.*)?$", REG_EXTENDED) == 0);
+
+	regex_t re_entry; /* tag configuration entry */
+#define ID "[a-zA-Z][a-zA-Z0-9_-]*"
+	assert(regcomp(&re_entry, "^([uacp][0-9]+)"
+		       "[ \t]+(" ID ")"
+		       "([ \t]+(" ID "\\.)?(" ID ")?)?"
+		       "\n?$", REG_EXTENDED) == 0);
+#undef ID
+	regmatch_t groups[re_entry.re_nsub + 1];
+
+	char *line = NULL;
+	size_t sz = 0;
+	size_t ln; /* line number */
+	char *p;
+	int retval = -1;
+
+	for (ln = 1; getline(&line, &sz, f) >= 0; ++ln) {
+		if (regexec(&re_rstrip, line, 1, groups, 0) == 0)
+			line[groups->rm_so] = 0; /* skip trailing junk */
+
+		for (p = line; isspace(*p); ++p)
+			; /* skip leading whitespace */
+
+		if (*p == 0)
+			continue; /* empty line */
+
+		if (regexec(&re_entry, p, re_entry.re_nsub + 1, groups, 0)
+		    != 0) {
+			fprintf(stderr, "%s:%lu: Syntax error\n", path,
+				(unsigned long) ln);
+			goto end;
+		}
+
+		p[groups[1].rm_eo] = p[groups[2].rm_eo] = 0;
+
+		if (groups[3].rm_so == -1) { /* no "plugin.codec" group */
+			add_tag(p + groups[1].rm_so, p + groups[2].rm_so,
+				default_plugin, p + groups[2].rm_so);
+			continue;
+		}
+
+		if (groups[4].rm_so != -1)
+			p[groups[4].rm_eo - 1] = 0;
+
+		if (groups[5].rm_so != -1)
+			p[groups[5].rm_eo] = 0;
+
+		/* XXX shouldn't we return anything? */
+		add_tag(p + groups[1].rm_so,
+			p + groups[2].rm_so,
+			groups[4].rm_so == -1 ?
+			default_plugin : p + groups[4].rm_so,
+			p + groups[groups[5].rm_so == -1 ? 2 : 5].rm_so);		}
+
+	retval = 0;
+end:
+	free(line);
+	regfree(&re_entry);
+	regfree(&re_rstrip);
+
+	return retval;
+}
+
+int
+repr_read_conf(struct hlist_head *dest, const char *path)
+{
+	debug_print("repr_read_conf: `%s'", path);
+
+	char *__path = strdup(path);
+	if (__path == NULL)
+		die("Out of memory, strdup failed");
+
+	int retval = -1;
+	FILE *f = NULL;
+
+	const char *default_plugin = plugin_name(__path);
+	if (default_plugin == NULL)
+		goto end;
+
+	if ((f = fopen(path, "r")) == NULL) {
+		error(0, errno, "%s", path);
+		goto end;
+	}
+
+	retval = parse_conf(dest, f, default_plugin, path);
+end:
+	if (f != NULL)
+		fclose(f);
+	free(__path);
+
+	return retval;
+}
+
+#if 0 /* XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX */
 static struct Repr_Attr *
 new_reprattr(uint32_t key, const char *name)
 {
@@ -104,7 +231,7 @@ new_reprattr(uint32_t key, const char *name)
 
 	INIT_HLIST_NODE(&x->n);
 	x->key = key;
-	if (asprintf(&x->name, name) < 0)
+	if (asprintf(&x->name, "%s", name) < 0)
 		die("Out of memory, asprintf failed");
 	x->decode = NULL;
 
