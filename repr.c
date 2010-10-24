@@ -116,6 +116,28 @@ plugin_name(char *path)
 	return fn;
 }
 
+static uint32_t
+tagspec2key(const char *s)
+{
+	enum Tag_Class cls;
+	unsigned long num;
+
+	switch (*s) {
+	case 'u': cls = TC_UNIVERSAL; break;
+	case 'a': cls = TC_APPLICATION; break;
+	case 'c': cls = TC_CONTEXT; break;
+	case 'p': cls = TC_PRIVATE; break;
+	default:
+		assert(0 == 1);
+	}
+
+	errno = 0;
+	num = strtoul(s + 1, NULL, 10);
+	assert(errno == 0);
+
+	return tagkey(cls, num);
+}
+
 static bool
 bucket_has_key(const struct hlist_head *head, uint32_t key)
 {
@@ -141,29 +163,11 @@ add_repr(struct hlist_head *dest, const char *spec, const char *name,
 		debug_print("add_repr: tag=%s name=%s plugin=lib%s.so codec=%s",
 			    spec, name, plugin, codec);
 #endif
-
-	enum Tag_Class cls;
-	unsigned long num;
-
-	switch (*spec) {
-	case 'u': cls = TC_UNIVERSAL; break;
-	case 'a': cls = TC_APPLICATION; break;
-	case 'c': cls = TC_CONTEXT; break;
-	case 'p': cls = TC_PRIVATE; break;
-	default:
-		assert(0 == 1);
-	}
-
-	errno = 0;
-	num = strtoul(spec + 1, NULL, 10);
-	assert(errno == 0);
-
 	struct Repr_Attr *attr = xmalloc(sizeof(struct Repr_Attr));
 	INIT_HLIST_NODE(&attr->n);
-	attr->key = tagkey(cls, num);
+	attr->key = tagspec2key(spec);
 
 	struct hlist_head *head = &dest[hashfn(attr->key)];
-
 	if (bucket_has_key(head, attr->key)) {
 		fprintf(stderr, "%s: Too many `%s' entries\n", path, spec);
 		free(attr);
