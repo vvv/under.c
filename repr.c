@@ -59,6 +59,7 @@ repr_destroy_htab(struct hlist_head *htab)
 	struct hlist_node *x, *tmp;
 	struct Repr_Attr *attr;
 	size_t i;
+
 	for (i = 0; i < nbuckets; ++i) {
 		hlist_for_each_safe(x, tmp, &htab[i]) {
 			attr = hlist_entry(x, struct Repr_Attr, n);
@@ -76,8 +77,8 @@ find_attr(const struct hlist_head *htab, uint32_t key)
 {
 	assert(htab != NULL);
 
-	struct Repr_Attr *attr;
-	struct hlist_node *x;
+	const struct Repr_Attr *attr;
+	const struct hlist_node *x;
 
 	hlist_for_each_entry(attr, x, &htab[hashfn(key)], n) {
 		if (attr->key == key)
@@ -115,9 +116,23 @@ plugin_name(char *path)
 	return fn;
 }
 
-static void
-add_repr(struct hlist_head *htab, const char *spec, const char *name,
-	 const char *plugin, const char *codec)
+static bool
+bucket_has_key(const struct hlist_head *head, uint32_t key)
+{
+	const struct Repr_Attr *attr;
+	const struct hlist_node *x;
+
+	hlist_for_each_entry(attr, x, head, n) {
+		if (attr->key == key)
+			return true;
+	}
+
+	return false;
+}
+
+static int
+add_repr(struct hlist_head *dest, const char *spec, const char *name,
+	 const char *plugin, const char *codec, const char *path)
 {
 #ifdef DEBUG
 	if (codec == NULL)
@@ -146,13 +161,45 @@ add_repr(struct hlist_head *htab, const char *spec, const char *name,
 	struct Repr_Attr *attr = xmalloc(sizeof(struct Repr_Attr));
 	INIT_HLIST_NODE(&attr->n);
 	attr->key = tagkey(cls, num);
+
+	struct hlist_head *head = &dest[hashfn(attr->key)];
+
+	if (bucket_has_key(head, attr->key)) {
+		fprintf(stderr, "%s: Too many `%s' entries\n", path, spec);
+		free(attr);
+		return -1;
+	}
+
 	if (asprintf(&attr->name, "%s", name) < 0)
 		die("Out of memory, asprintf failed");
 	attr->decode = NULL; /* XXX */
 
-	/* XXX TODO What if an entry with such key exists already? */
-	hlist_add_head(&attr->n, &htab[hashfn(attr->key)]);
+	hlist_add_head(&attr->n, head);
+
+	return 0;
 }
+
+#ifdef DEBUG
+static void
+debug_show_htab(const struct hlist_head *htab)
+{
+	const size_t nbuckets = 1 << HASH_NBITS;
+
+	const struct Repr_Attr *attr;
+	const struct hlist_node *x;
+	size_t i;
+
+	for (i = 0; i < nbuckets; ++i) {
+		fprintf(stderr, "(DEBUG) repr_htab[%lu]:", (unsigned long) i);
+		hlist_for_each_entry(attr, x, &htab[i], n)
+			fprintf(stderr, " %c%u", "uacp"[attr->key >> 30],
+				attr->key & 0x3fffffff);
+		fputc('\n', stderr);
+	}
+}
+#else
+#  define debug_show_htab(...)
+#endif
 
 static int
 parse_conf(struct hlist_head *dest, FILE *f, const char *default_plugin,
@@ -196,21 +243,26 @@ parse_conf(struct hlist_head *dest, FILE *f, const char *default_plugin,
 		p[groups[1].rm_eo] = p[groups[2].rm_eo] = 0;
 
 		if (groups[3].rm_so == -1) {
-			add_repr(dest, p + groups[1].rm_so, p + groups[2].rm_so,
-				 NULL, NULL);
-			continue;
+			if (add_repr(dest, p + groups[1].rm_so,
+				     p + groups[2].rm_so, NULL, NULL, path)
+			    == 0)
+				continue;
+			else
+				goto end;
 		}
 
 		if (groups[4].rm_so != -1)
 			p[groups[4].rm_eo - 1] = 0;
 		p[groups[5].rm_eo] = 0;
 
-		add_repr(dest, p + groups[1].rm_so, p + groups[2].rm_so,
-			 groups[4].rm_so == -1 ?
-			 default_plugin : p + groups[4].rm_so,
-			 p + groups[5].rm_so);
+		if (add_repr(dest, p + groups[1].rm_so, p + groups[2].rm_so,
+			     groups[4].rm_so == -1 ?
+			     default_plugin : p + groups[4].rm_so,
+			     p + groups[5].rm_so, path) != 0)
+			goto end;
 	}
 
+	debug_show_htab(dest);
 	retval = 0;
 end:
 	free(line);

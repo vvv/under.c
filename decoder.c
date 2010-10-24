@@ -255,7 +255,7 @@ delete_zero_capacities(struct DecSt *z)
 }
 
 #ifdef DEBUG
-static inline void
+static void
 debug_show_decoder_state(const struct DecSt *z, const struct Stream *str,
 			 const struct Stream *master, const char *format, ...)
 {
