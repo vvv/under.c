@@ -107,7 +107,7 @@ read_block(struct Pstring *dest, FILE *src, struct Stream *stream)
  */
 static int
 process_file(enum Codec_T ct, const char *inpath, struct Pstring *inbuf,
-	     const struct hlist_head *repr)
+	     const struct Format_Repr *repr)
 {
 	debug_print("process_file: `%s'", inpath);
 	FILE *f = NULL;
@@ -194,7 +194,7 @@ main(int argc, char **argv)
 {
 	struct Pstring inbuf = { 0, NULL };
 	enum Codec_T ct = DECODER;
-	struct hlist_head *repr = NULL;
+	FORMAT_REPR(repr);
 
 	const struct option longopts[] = {
 		{ "encode", 0, NULL, 'e' },
@@ -210,15 +210,14 @@ main(int argc, char **argv)
 			break;
 
 		case 'f':
-			if (repr != NULL) {
-				repr_destroy_htab(repr);
-				error(1, 0, "Multiple -f/--format options are"
-				      " not allowed");
+			if (repr.dict != NULL) {
+				repr_destroy(&repr);
+				die("Multiple -f/--format options are not"
+				    " allowed");
 			}
 
-			repr = repr_create_htab();
-			if (repr_read_conf(repr, optarg) != 0) {
-				repr_destroy_htab(repr);
+			if (repr_create(&repr, optarg) != 0) {
+				repr_destroy(&repr);
 				return 1;
 			}
 			break;
@@ -238,14 +237,14 @@ main(int argc, char **argv)
 
 	int rv = 0;
 	if (optind == argc) {
-		rv = process_file(ct, "-", &inbuf, repr);
+		rv = process_file(ct, "-", &inbuf, &repr);
 	} else {
 		int i;
 		for (i = optind; i < argc; ++i)
-			rv |= process_file(ct, argv[i], &inbuf, repr);
+			rv |= process_file(ct, argv[i], &inbuf, &repr);
 	}
 
-	repr_destroy_htab(repr);
+	repr_destroy(&repr);
 	free(inbuf.data);
 	return -rv;
 }

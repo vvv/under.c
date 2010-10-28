@@ -332,7 +332,7 @@ decode(struct DecSt *z, struct Stream *master)
 		/* IE_DONE */
 		if (header_p) {
 			putchar('(');
-			repr_show_header(z->repr_htab, tag.cls, tag.num);
+			repr_show_header(z->repr, tag.cls, tag.num);
 
 			if (tag.len == 0) {
 				fputs(tag.cons_p ? " ()" : " \"\"", stdout);

@@ -7,7 +7,7 @@
  * Most of the code is copied verbatim from <linux/list.h>
  * [http://lxr.linux.no/#linux+v2.6.33/include/linux/list.h].
  *
- * `container_of' comes from <linux/kernel.h>.
+ * - `container_of' comes from <linux/kernel.h>.
  */
 
 #ifndef container_of
@@ -164,17 +164,22 @@ struct hlist_node {
 	struct hlist_node *next, **pprev;
 };
 
+#define HLIST_HEAD_INIT { .first = NULL }
+
+#define HLIST_HEAD(name) struct hlist_head name = {  .first = NULL }
+
 #define INIT_HLIST_HEAD(ptr) ((ptr)->first = NULL)
+
 static inline void INIT_HLIST_NODE(struct hlist_node *n)
 {
 	n->next = NULL;
 	n->pprev = NULL;
 }
 
-/* static inline int hlist_empty(const struct hlist_head *h) */
-/* { */
-/* 	return !h->first; */
-/* } */
+static inline int hlist_empty(const struct hlist_head *h)
+{
+	return h->first == NULL;
+}
 
 /* static inline void __hlist_del(struct hlist_node *n) */
 /* { */
@@ -210,17 +215,17 @@ static inline void hlist_add_head(struct hlist_node *n, struct hlist_head *h)
 /* 	*(n->pprev) = n; */
 /* } */
 
-/* /\* Insert node `next' after `n'. *\/ */
-/* static inline void hlist_add_after(struct hlist_node *n, */
-/* 				   struct hlist_node *next) */
-/* { */
-/* 	next->next = n->next; */
-/* 	n->next = next; */
-/* 	next->pprev = &n->next; */
+/* Insert node `next' after `n'. */
+static inline void hlist_add_after(struct hlist_node *n,
+				   struct hlist_node *next)
+{
+	next->next = n->next;
+	n->next = next;
+	next->pprev = &n->next;
 
-/* 	if (next->next) */
-/* 		next->next->pprev  = &next->next; */
-/* } */
+	if (next->next)
+		next->next->pprev  = &next->next;
+}
 
 /**
  * hlist_entry - get [the pointer to] the struct for this entry
@@ -245,6 +250,31 @@ static inline void hlist_add_head(struct hlist_node *n, struct hlist_head *h)
  */
 #define hlist_for_each_entry(tpos, pos, head, member)                         \
 	for (pos = (head)->first;                                             \
+	     pos && ({ tpos = hlist_entry(pos, typeof(*tpos), member); 1; }); \
+	     pos = pos->next)
+
+/**
+ * hlist_for_each_entry_safe - iterate over list of given type safe against removal of list entry
+ * @tpos:	the type * to use as a loop cursor.
+ * @pos:	the &struct hlist_node to use as a loop cursor.
+ * @n:		another &struct hlist_node to use as temporary storage
+ * @head:	the head for your list.
+ * @member:	the name of the hlist_node within the struct.
+ */
+#define hlist_for_each_entry_safe(tpos, pos, n, head, member)             \
+	for (pos = (head)->first;                                         \
+	     pos && ({ n = pos->next; 1; }) &&                            \
+		({ tpos = hlist_entry(pos, typeof(*tpos), member); 1; }); \
+	     pos = n)
+
+/**
+ * hlist_for_each_entry_from - iterate over list of given type from the current point
+ * @tpos:	the type * to use as a loop cursor.
+ * @pos:	the &struct hlist_node to use as a loop cursor.
+ * @member:	the name of the hlist_node within the struct.
+ */
+#define hlist_for_each_entry_from(tpos, pos, member)                          \
+	for (;                                                                \
 	     pos && ({ tpos = hlist_entry(pos, typeof(*tpos), member); 1; }); \
 	     pos = pos->next)
 

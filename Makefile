@@ -3,8 +3,12 @@
 
 # CPPFLAGS = -DDEBUG -DFILLERS
 CPPFLAGS = -DFILLERS
+
 CFLAGS = -g -Wall -Wextra
 # CFLAGS = -O3 -Wall -Wextra
+
+# LDFLAGS = -rdynamic
+LDLIBS = -ldl
 
 PROG = under
 SRC = iteratee.c decoder.c encoder.c codec.c under.c util.c repr.c

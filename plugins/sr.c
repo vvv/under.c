@@ -26,10 +26,10 @@
  *   -1 - decoding has failed or resulting string exceeds `n' bytes.
  */
 int
-decode_callTransactionType(const struct Pstring *src, char *dest, size_t n)
+decode_CallTransactionType(const struct Pstring *src, char *dest, size_t n)
 {
 	if (src->size != 1) {
-		snprintf(dest, n, "decode_callTransactionType: 1 byte expected"
+		snprintf(dest, n, "decode_CallTransactionType: 1 byte expected"
 			 ", %lu received", (unsigned long) src->size);
 		return -1;
 	}
@@ -37,7 +37,7 @@ decode_callTransactionType(const struct Pstring *src, char *dest, size_t n)
 	const uint8_t x = *src->data;
 
 	if (x >= ARRAY_SIZE(ctt_idx) || ctt_idx[x] == 0) {
-		snprintf(dest, n, "decode_callTransactionType:"
+		snprintf(dest, n, "decode_CallTransactionType:"
 			 " unsupported value: %u", x);
 		return -1;
 	}
@@ -47,6 +47,7 @@ decode_callTransactionType(const struct Pstring *src, char *dest, size_t n)
 		0 : -1;
 }
 
+#if 0 /*XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX*/
 /* int */
 /* encode_callTransactionType(const struct Pstring *src, struct Pstring *dest) */
 /* { */
@@ -70,3 +71,4 @@ _ctt_tonum(const char *src, uint8_t *dest)
 	*dest = p->number;
 	return 0;
 }
+#endif /*XXX*/

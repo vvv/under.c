@@ -12,7 +12,7 @@
 
 IterV
 run_codec(enum Codec_T type, void **z, struct Stream *str,
-	  const struct hlist_head *repr)
+	  const struct Format_Repr *repr)
 {
 	if (type == DECODER) {
 		if (*z == NULL) {

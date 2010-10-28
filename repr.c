@@ -7,113 +7,160 @@
  */
 #define _GNU_SOURCE
 #include <stdio.h>
+#include <string.h>
 #include <assert.h>
+#include <stdlib.h>
 #include <regex.h>
 #include <ctype.h>
+#include <dlfcn.h>
 
 #include "repr.h"
-#include "list.h"
 #include "hash.h"
 #include "util.h"
 
 enum { HASH_NBITS = 8 };
-#define hashfn(TAGKEY)  hash_long((TAGKEY), HASH_NBITS)
 
-static inline uint32_t
-tagkey(enum Tag_Class cls, uint32_t num)
-{
-	return cls << 30 | num;
-}
+/* Tag representation */
+struct Repr {
+	struct hlist_node _node;
 
-/* Tag representation attributes */
-struct Repr_Attr {
-	struct hlist_node n;
-
-	uint32_t key; /* hash key */
-	char *name;
-	int (*decode)(const struct Pstring *, char *, size_t);
-	/* int (*encode)(const struct Pstring *, struct Pstring *); */
+	uint32_t key; /* hash key*/
+	char *name; /* human-friendly tag name (e.g., "recordType") */
+	int (*decode)(const struct Pstring *src, char *dest, size_t n);
 };
 
-struct hlist_head *
-repr_create_htab(void)
+struct Plugin {
+	struct hlist_node _node;
+
+	char *name; /* name of plugin (library filename = libunder_NAME.so) */
+	void *handle; /* opaque handle for the dynamic library */
+};
+
+#define NOLIB_HANDLE (void *) 1
+
+void
+repr_destroy(struct Format_Repr *fmt)
+{
+	struct hlist_node *x, *tmp;
+	struct Plugin *p;
+	hlist_for_each_entry_safe(p, x, tmp, &fmt->libs, _node) {
+		free(p->name);
+		if (p->handle != NULL && p->handle != NOLIB_HANDLE)
+			dlclose(p->handle);
+		free(p);
+	}
+	fmt->libs.first = NULL;
+
+	if (fmt->dict == NULL)
+		return;
+
+	const size_t nbuckets = 1 << HASH_NBITS;
+	struct Repr *r;
+
+	size_t i;
+	for (i = 0; i < nbuckets; ++i) {
+		hlist_for_each_entry_safe(r, x, tmp, fmt->dict + i, _node) {
+			free(r->name);
+			free(r);
+		}
+		fmt->dict[i].first = NULL;
+	}
+
+	free(fmt->dict);
+	fmt->dict = NULL;
+}
+
+static struct hlist_head *
+htab_create(void)
 {
 	const size_t nbuckets = 1 << HASH_NBITS;
 	struct hlist_head *h = xmalloc(nbuckets * sizeof(struct hlist_head));
 
 	size_t i;
 	for (i = 0; i < nbuckets; ++i)
-		INIT_HLIST_HEAD(&h[i]);
+		INIT_HLIST_HEAD(h + i);
 
 	return h;
 }
 
-void
-repr_destroy_htab(struct hlist_head *htab)
-{
-	if (htab == NULL)
-		return;
-
-	const size_t nbuckets = 1 << HASH_NBITS;
-
-	struct hlist_node *x, *tmp;
-	struct Repr_Attr *attr;
-	size_t i;
-
-	for (i = 0; i < nbuckets; ++i) {
-		hlist_for_each_safe(x, tmp, &htab[i]) {
-			attr = hlist_entry(x, struct Repr_Attr, n);
-			free(attr->name);
-			free(attr);
-		}
-		htab[i].first = NULL;
-	}
-
-	free(htab);
-}
-
-static const struct Repr_Attr *
-find_attr(const struct hlist_head *htab, uint32_t key)
-{
-	assert(htab != NULL);
-
-	const struct Repr_Attr *attr;
-	const struct hlist_node *x;
-
-	hlist_for_each_entry(attr, x, &htab[hashfn(key)], n) {
-		if (attr->key == key)
-			return attr;
-	}
-
-	return NULL;
-}
-
-void
-repr_show_header(const struct hlist_head *htab, enum Tag_Class cls,
-		 uint32_t num)
-{
-	const struct Repr_Attr *r;
-
-	if (htab == NULL || (r = find_attr(htab, tagkey(cls, num))) == NULL)
-		printf("%c%u", "uacp"[cls], num);
-	else
-		printf(":%s", r->name);
-}
-
+/*
+ * Return filename component of `path' with file extension stripped.
+ * Return NULL if file extension is not equal to `filext'.
+ */
 static const char *
-plugin_name(char *path)
+basename_stripext(char *path, const char *filext)
 {
-	char *fn = basename(path);
-	char *p = strrchr(fn, '.');
+        char *fn = basename(path);
+	char *p = fn + strlen(fn) - strlen(filext);
 
-	if (p == NULL || !streq(p, ".conf")) {
-		fputs("-f/--format parameter must have `.conf' suffix\n",
-		      stderr);
+	if (p <= fn || !streq(p, filext))
+		return NULL;
+        *p = 0;
+
+        return fn;
+}
+
+static struct Plugin *
+find_plugin(struct hlist_head *libs, const char *name)
+{
+	if (name == NULL)
+		return hlist_entry(libs->first, struct Plugin, _node);
+
+	struct hlist_node *last = libs->first;
+	struct hlist_node *x = last->next;
+	struct Plugin *lib;
+
+	hlist_for_each_entry_from(lib, x, _node) {
+		if (streq(lib->name, name))
+			return lib;
+		last = x;
+	}
+
+	lib = new_zeroed(struct Plugin);
+	if (asprintf(&lib->name, "%s", name) < 0)
+		die("Out of memory, asprintf failed");
+
+	hlist_add_after(last, &lib->_node);
+	return lib;
+}
+
+static void *
+find_symbol(struct hlist_head *libs, const char *plugin, const char *symbol)
+{
+	debug_print("find_symbol: %s.%s", plugin, symbol);
+
+	struct Plugin *lib = find_plugin(libs, plugin);
+
+	if (lib->handle == NULL) {
+                char filename[64] = {0};
+                assert((size_t) snprintf(filename, sizeof(filename),
+					 "libunder_%s.so", lib->name)
+		       < sizeof(filename));
+
+                if ((lib->handle = dlopen(filename, RTLD_LAZY)) == NULL) {
+                        fprintf(stderr, "*WARNING* %s\n", dlerror());
+			lib->handle = NOLIB_HANDLE;
+                        return NULL;
+                }
+	} else if (lib->handle == NOLIB_HANDLE) {
 		return NULL;
 	}
-	*p = 0;
 
-	return fn;
+        dlerror(); /* clear existing error */
+        void *sym = dlsym(lib->handle, symbol);
+
+        const char *err = dlerror();
+        if (err == NULL)
+		return sym;
+
+	fprintf(stderr, "*WARNING* %s\n", err);
+        return NULL;
+}
+
+static inline uint32_t
+tagkey(enum Tag_Class cls, uint32_t num)
+{
+        return cls << 30 | num;
 }
 
 static uint32_t
@@ -124,132 +171,148 @@ tagspec2key(const char *s)
 
 	switch (*s) {
 	case 'u': cls = TC_UNIVERSAL; break;
-	case 'a': cls = TC_APPLICATION; break;
-	case 'c': cls = TC_CONTEXT; break;
-	case 'p': cls = TC_PRIVATE; break;
-	default:
-		assert(0 == 1);
+        case 'a': cls = TC_APPLICATION; break;
+        case 'c': cls = TC_CONTEXT; break;
+        case 'p': cls = TC_PRIVATE; break;
+        default:
+                assert(0 == 1);
 	}
 
-	errno = 0;
-	num = strtoul(s + 1, NULL, 10);
-	assert(errno == 0);
+        errno = 0;
+        num = strtoul(s + 1, NULL, 10);
+        assert(errno == 0);
 
-	return tagkey(cls, num);
+        return tagkey(cls, num);
 }
 
-static bool
-bucket_has_key(const struct hlist_head *head, uint32_t key)
+static const struct Repr *
+bucket_getitem(const struct hlist_head *bucket, uint32_t key)
 {
-	const struct Repr_Attr *attr;
-	const struct hlist_node *x;
+        const struct hlist_node *x;
+        const struct Repr *r;
 
-	hlist_for_each_entry(attr, x, head, n) {
-		if (attr->key == key)
-			return true;
-	}
+        hlist_for_each_entry(r, x, bucket, _node) {
+                if (r->key == key)
+                        return r;
+        }
 
-	return false;
+        return NULL;
 }
 
 static int
-add_repr(struct hlist_head *dest, const char *spec, const char *name,
-	 const char *plugin, const char *codec, const char *path)
+add_repr(struct Format_Repr *fmt, const char *tag, const char *name,
+	 const char *plugin, const char *codec, const char *conf_path)
 {
 #ifdef DEBUG
-	if (codec == NULL)
-		debug_print("add_repr: tag=%s name=%s", spec, name);
-	else
-		debug_print("add_repr: tag=%s name=%s plugin=lib%s.so codec=%s",
-			    spec, name, plugin, codec);
+	fprintf(stderr, "(DEBUG) add_repr: tag=%s name=%s", tag, name);
+	if (codec != NULL)
+		fprintf(stderr, " plugin=%s codec=%s", plugin, codec);
+	fputc('\n', stderr);
 #endif
-	struct Repr_Attr *attr = xmalloc(sizeof(struct Repr_Attr));
-	INIT_HLIST_NODE(&attr->n);
-	attr->key = tagspec2key(spec);
 
-	struct hlist_head *head = &dest[hashfn(attr->key)];
-	if (bucket_has_key(head, attr->key)) {
-		fprintf(stderr, "%s: Too many `%s' entries\n", path, spec);
-		free(attr);
+	struct Repr *r = new_zeroed(struct Repr);
+	r->key = tagspec2key(tag);
+
+	if (fmt->dict == NULL)
+		fmt->dict = htab_create();
+
+	struct hlist_head *head = fmt->dict + hash_long(r->key, HASH_NBITS);
+	if (bucket_getitem(head, r->key) != NULL) {
+		fprintf(stderr, "%s: Too many `%s' entries\n", conf_path, tag);
+		free(r);
 		return -1;
 	}
 
-	if (asprintf(&attr->name, "%s", name) < 0)
+	if (asprintf(&r->name, "%s", name) < 0)
 		die("Out of memory, asprintf failed");
-	attr->decode = NULL; /* XXX */
 
-	hlist_add_head(&attr->n, head);
+	if (codec != NULL) {
+		const bool defplug_p = plugin == NULL ||
+			streq(plugin, hlist_entry(fmt->libs.first,
+						  struct Plugin, _node)->name);
+		char s[64] = {0};
 
+		r->decode = find_symbol
+			(&fmt->libs, defplug_p ? NULL : plugin,
+			 strncat(strncpy(s, "decode_", sizeof(s)-1),
+				 codec, sizeof(s) - strlen(s) - 1));
+
+		/* XXX r->encode */
+	}
+
+	hlist_add_head(&r->_node, head);
 	return 0;
 }
 
 #ifdef DEBUG
 static void
-debug_show_htab(const struct hlist_head *htab)
+debug_show_format_repr(const struct Format_Repr *fmt)
 {
 	const size_t nbuckets = 1 << HASH_NBITS;
-
-	const struct Repr_Attr *attr;
 	const struct hlist_node *x;
+	const struct Repr *r;
 	size_t i;
 
 	for (i = 0; i < nbuckets; ++i) {
-		fprintf(stderr, "(DEBUG) repr_htab[%lu]:", (unsigned long) i);
-		hlist_for_each_entry(attr, x, &htab[i], n)
-			fprintf(stderr, " %c%u", "uacp"[attr->key >> 30],
-				attr->key & 0x3fffffff);
+		fprintf(stderr, "(DEBUG) repr_dict[%lu]:", (unsigned long) i);
+		hlist_for_each_entry(r, x, fmt->dict + i, _node)
+			fprintf(stderr, " %c%u", "uacp"[r->key >> 30],
+				r->key & 0x3fffffff);
 		fputc('\n', stderr);
 	}
+
+	fputs("(DEBUG) repr_libs:", stderr);
+	const struct Plugin *p;
+	hlist_for_each_entry(p, x, &fmt->libs, _node)
+		fprintf(stderr, " %s", p->name);
+	fputc('\n', stderr);
 }
 #else
-#  define debug_show_htab(...)
+#  define debug_show_format_repr(...)
 #endif
 
 static int
-parse_conf(struct hlist_head *dest, FILE *f, const char *default_plugin,
-	   const char *path)
+parse_conf(struct Format_Repr *dest, FILE *f, const char *conf_path)
 {
 	regex_t re_rstrip; /* trailing whitespace and/or comments */
 	assert(regcomp(&re_rstrip, "[ \t]*(#.*)?$", REG_EXTENDED) == 0);
 
-	regex_t re_entry; /* tag configuration entry */
-#define ID "[a-zA-Z][a-zA-Z0-9_-]*"
-	assert(regcomp(&re_entry, "^([uacp][0-9]+)"
-		       "[ \t]+(" ID ")"
-		       "([ \t]+(" ID "\\.)?(" ID "))?"
-		       "\n?$", REG_EXTENDED) == 0);
+	regex_t re_entry; /* tag representation entry */
+#define ID "[a-zA-Z][a-zA-Z0-9_]*"
+        assert(regcomp(&re_entry, "^([uacp][0-9]+)"
+                       "[ \t]+(" ID ")"
+                       "([ \t]+(" ID "\\.)?(" ID "))?"
+                       "\n?$", REG_EXTENDED) == 0);
 #undef ID
-	regmatch_t groups[re_entry.re_nsub + 1];
+        regmatch_t groups[re_entry.re_nsub + 1];
 
 	char *line = NULL;
 	size_t sz = 0;
-	size_t ln; /* line number */
+	unsigned long ln; /* line number */
 	char *p;
 	int retval = -1;
 
 	for (ln = 1; getline(&line, &sz, f) >= 0; ++ln) {
 		if (regexec(&re_rstrip, line, 1, groups, 0) == 0)
-			line[groups->rm_so] = 0; /* skip trailing junk */
+			line[groups->rm_so] = 0; /* delete trailing junk */
 
 		for (p = line; isspace(*p); ++p)
 			; /* skip leading whitespace */
-
 		if (*p == 0)
 			continue; /* empty line */
 
 		if (regexec(&re_entry, p, re_entry.re_nsub + 1, groups, 0)
 		    != 0) {
-			fprintf(stderr, "%s:%lu: Syntax error\n", path,
-				(unsigned long) ln);
+			fprintf(stderr, "%s:%lu: Syntax error\n", conf_path,
+				ln);
 			goto end;
 		}
-
 		p[groups[1].rm_eo] = p[groups[2].rm_eo] = 0;
 
 		if (groups[3].rm_so == -1) {
 			if (add_repr(dest, p + groups[1].rm_so,
-				     p + groups[2].rm_so, NULL, NULL, path)
-			    == 0)
+				     p + groups[2].rm_so, NULL, NULL,
+				     conf_path) == 0)
 				continue;
 			else
 				goto end;
@@ -260,13 +323,12 @@ parse_conf(struct hlist_head *dest, FILE *f, const char *default_plugin,
 		p[groups[5].rm_eo] = 0;
 
 		if (add_repr(dest, p + groups[1].rm_so, p + groups[2].rm_so,
-			     groups[4].rm_so == -1 ?
-			     default_plugin : p + groups[4].rm_so,
-			     p + groups[5].rm_so, path) != 0)
+			     groups[4].rm_so == -1 ? NULL : p + groups[4].rm_so,
+                             p + groups[5].rm_so, conf_path) != 0)
 			goto end;
 	}
 
-	debug_show_htab(dest);
+	debug_show_format_repr(dest);
 	retval = 0;
 end:
 	free(line);
@@ -276,61 +338,67 @@ end:
 	return retval;
 }
 
-int
-repr_read_conf(struct hlist_head *dest, const char *path)
+static int
+check_format_argument(struct hlist_head *libs, const char *conf_path)
 {
-	debug_print("repr_read_conf: `%s'", path);
+	assert(hlist_empty(libs));
 
-	char *__path = strdup(path);
-	if (__path == NULL)
+	char *path = strdup(conf_path);
+	if (path == NULL)
 		die("Out of memory, strdup failed");
 
-	int retval = -1;
-	FILE *f = NULL;
-
-	const char *default_plugin = plugin_name(__path);
-	if (default_plugin == NULL)
-		goto end;
-
-	if ((f = fopen(path, "r")) == NULL) {
-		error(0, errno, "%s", path);
-		goto end;
+	const char *defplug = basename_stripext(path, ".conf"); /*XXX*/
+	if (defplug == NULL) {
+		fputs("--format argument must have `.conf' suffix\n", stderr);
+		free(path);
+		return -1;
 	}
 
-	retval = parse_conf(dest, f, default_plugin, path);
-end:
-	if (f != NULL)
-		fclose(f);
-	free(__path);
+	struct Plugin *p = new_zeroed(struct Plugin);
+	if (asprintf(&p->name, "%s", defplug) < 0)
+		die("Out of memory, asprintf failed");
+	hlist_add_head(&p->_node, libs);
 
-	return retval;
+	free(path);
+	return 0;
 }
 
-#if 0 /* XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX */
-static struct Repr_Attr *
-new_reprattr(uint32_t key, const char *name)
+int
+repr_create(struct Format_Repr *dest, const char *conf_path)
 {
-	struct Repr_Attr *x = xmalloc(sizeof(struct Repr_Attr));
+	debug_print("repr_create: `%s'", conf_path);
 
-	INIT_HLIST_NODE(&x->n);
-	x->key = key;
-	if (asprintf(&x->name, "%s", name) < 0)
-		die("Out of memory, asprintf failed");
-	x->decode = NULL;
+	if (check_format_argument(&dest->libs, conf_path) != 0)
+		return -1;
 
-	return x;
+	FILE *f = fopen(conf_path, "r");
+	if (f == NULL) {
+		error(0, errno, "%s", conf_path);
+		return -1;
+	}
+
+	assert(dest->dict == NULL);
+	const int rv = parse_conf(dest, f, conf_path);
+
+	fclose(f);
+	return rv;
+}
+
+static inline const struct Repr *
+htab_getitem(const struct hlist_head *htab, uint32_t key)
+{
+        return bucket_getitem(htab + hash_long(key, HASH_NBITS), key);
 }
 
 void
-repr_fill_htab_XXX(struct hlist_head *htab)
+repr_show_header(const struct Format_Repr *fmt, enum Tag_Class cls,
+		 uint32_t num)
 {
-	assert(htab != NULL);
-	struct Repr_Attr *attr;
+	const struct Repr *r;
 
-	attr = new_reprattr(tagkey(TC_PRIVATE, 7), "servedMsisdn");
-	hlist_add_head(&attr->n, &htab[hashfn(attr->key)]);
-
-	attr = new_reprattr(tagkey(TC_PRIVATE, 71), "callTransactionType");
-	hlist_add_head(&attr->n, &htab[hashfn(attr->key)]);
+	if (fmt->dict == NULL ||
+	    (r = htab_getitem(fmt->dict, tagkey(cls, num))) == NULL)
+		printf("%c%u", "uacp"[cls], num);
+	else
+		printf(":%s", r->name);
 }
-#endif /* XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX */

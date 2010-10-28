@@ -28,15 +28,15 @@ struct DecSt {
 	 * to their human-readable representations (and vice versa).
 	 * The structure is opaque for `decoder.c'.
 	 */
-	const struct hlist_head *repr_htab;
+	const struct Format_Repr *repr;
 };
 
 static inline void
-init_DecSt(struct DecSt *z, const struct hlist_head *repr)
+init_DecSt(struct DecSt *z, const struct Format_Repr *repr)
 {
 	z->depth = 0;
 	INIT_LIST_HEAD(&z->caps);
-	z->repr_htab = repr;
+	z->repr = repr;
 }
 
 /*
