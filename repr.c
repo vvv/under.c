@@ -248,17 +248,22 @@ add_repr(struct Format_Repr *fmt, const char *tag, const char *name,
 static void
 debug_show_format_repr(const struct Format_Repr *fmt)
 {
-	const size_t nbuckets = 1 << HASH_NBITS;
 	const struct hlist_node *x;
-	const struct Repr *r;
-	size_t i;
 
-	for (i = 0; i < nbuckets; ++i) {
-		fprintf(stderr, "(DEBUG) repr_dict[%lu]:", (unsigned long) i);
-		hlist_for_each_entry(r, x, fmt->dict + i, _node)
-			fprintf(stderr, " %c%u", "uacp"[r->key >> 30],
-				r->key & 0x3fffffff);
-		fputc('\n', stderr);
+	if (fmt->dict == NULL) {
+		debug_print("repr_dict: NULL");
+	} else {
+		const unsigned long nbuckets = 1 << HASH_NBITS;
+		const struct Repr *r;
+		unsigned long i;
+
+		for (i = 0; i < nbuckets; ++i) {
+			fprintf(stderr, "(DEBUG) repr_dict[%lu]:", i);
+			hlist_for_each_entry(r, x, fmt->dict + i, _node)
+				fprintf(stderr, " %c%u", "uacp"[r->key >> 30],
+					r->key & 0x3fffffff);
+			fputc('\n', stderr);
+		}
 	}
 
 	fputs("(DEBUG) repr_libs:", stderr);
