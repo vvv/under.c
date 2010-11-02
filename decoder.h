@@ -11,6 +11,8 @@
 #include "list.h"
 #include "iteratee.h"
 
+struct Buffer;
+
 /* Decoding state */
 struct DecSt {
 	uint32_t depth; /* Current depth within tag hierarchy */
@@ -24,20 +26,25 @@ struct DecSt {
 	struct list_head caps;
 
 	/*
-	 * Pointer to a structure that specifies how to convert tags
-	 * to their human-readable representations (and vice versa).
+	 * Pointer to a structure that specifies how to convert tag
+	 * data to human-friendly representations and vice versa.
 	 * The structure is opaque for `decoder.c'.
 	 */
-	const struct Format_Repr *repr;
+	const struct Repr_Format *repr;
+
+	struct Buffer *buf_repr; /* Human-friendly representation receiver */
+	struct Buffer *buf_raw; /* Raw bytes accumulator */
 };
 
-static inline void
-init_DecSt(struct DecSt *z, const struct Format_Repr *repr)
+static inline void init_DecSt(struct DecSt *z, const struct Repr_Format *repr)
 {
 	z->depth = 0;
 	INIT_LIST_HEAD(&z->caps);
 	z->repr = repr;
+	z->buf_repr = z->buf_raw = NULL;
 }
+
+void free_DecSt(struct DecSt *z);
 
 /*
  * Decode DER data.

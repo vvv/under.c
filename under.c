@@ -21,7 +21,9 @@
 #include <assert.h>
 #include <libgen.h>
 #include <getopt.h>
+
 #include "util.h"
+#include "buffer.h"
 #include "codec.h"
 #include "repr.h"
 
@@ -34,35 +36,28 @@
  * otherwise (re)allocate memory.
  */
 static int
-adjust_buffer(FILE *f, struct Pstring *buf)
+adjust_buffer(struct Buffer *buf, FILE *f)
 {
 #ifdef DEBUG
-	do {} while (&f == NULL);
+	(void) f;
 #  warning "Using buffer of size 5 for tests"
-	buf->size = 5;
-
-	debug_print("adjust_buffer: malloc(%lu)", (unsigned long) buf->size);
-	buf->data = xmalloc(buf->size);
+	return buffer_resize(buf, 5);
 #else
 	struct stat st;
-	if (fstat(fileno(f), &st) < 0)
+	size_t insize;
+
+	if (fstat(fileno(f), &st) != 0) {
+		error(0, errno, "fstat failed");
 		return -1;
-	const unsigned long insize = st.st_blksize;
-
-	if (insize != buf->size) {
-		if (fstat(fileno(stdout), &st) < 0) {
-			error(0, errno, "fstat(STDOUT)");
-			return -1;
-		}
-
-		buf->size = MAX(insize, (unsigned long) st.st_blksize);
-
-		debug_print("adjust_buffer: realloc(%p, %lu)", buf->data,
-			    (unsigned long) buf->size);
-		buf->data = xrealloc(buf->data, buf->size);
+	} else if ((insize = st.st_blksize) == buf->_max_size) {
+		return 0;
+	} else if (fstat(fileno(stdout), &st) != 0) {
+		error(0, errno, "fstat(stdout) failed");
+		return -1;
+	} else {
+		return buffer_resize(buf, MAX(insize, (size_t) st.st_blksize));
 	}
 #endif
-	return 0;
 }
 
 /*
@@ -70,11 +65,16 @@ adjust_buffer(FILE *f, struct Pstring *buf)
  *
  * @dest: memory buffer to read into
  * @src: file to read from
- * @stream: a stream to update */
+ * @stream: a stream to update
+ *
+ * Return the number of bytes read. Return zero in case of EOF or error.
+ */
 static size_t
-read_block(struct Pstring *dest, FILE *src, struct Stream *stream)
+read_block(struct Buffer *dest, FILE *src, struct Stream *stream)
 {
-	const size_t n = fread(dest->data, 1, dest->size, src);
+	assert(dest->size == dest->_max_size);
+	const size_t n = fread(dest->wptr, 1, dest->size, src);
+
 	if (n == 0) {
 		stream->type = S_EOF;
 
@@ -93,7 +93,7 @@ read_block(struct Pstring *dest, FILE *src, struct Stream *stream)
 
 	debug_print("read_block: %lu bytes read", (unsigned long) n);
 	stream->type = S_CHUNK;
-	stream->data = dest->data;
+	stream->data = dest->wptr;
 	stream->size = n;
 
 	return n;
@@ -106,8 +106,8 @@ read_block(struct Pstring *dest, FILE *src, struct Stream *stream)
  * Return value: 0 - success, -1 - error.
  */
 static int
-process_file(enum Codec_T ct, const char *inpath, struct Pstring *inbuf,
-	     const struct Format_Repr *repr)
+process_file(enum Codec_T ct, const char *inpath, struct Buffer *inbuf,
+	     const struct Repr_Format *repr)
 {
 	debug_print("process_file: `%s'", inpath);
 	FILE *f = NULL;
@@ -119,7 +119,7 @@ process_file(enum Codec_T ct, const char *inpath, struct Pstring *inbuf,
 		return -1;
 	}
 
-	if (adjust_buffer(f, inbuf) < 0) {
+	if (adjust_buffer(inbuf, f) < 0) {
 		error(0, errno, "%s", inpath);
 		return -1;
 	}
@@ -192,9 +192,9 @@ usage(char *argv0)
 int
 main(int argc, char **argv)
 {
-	struct Pstring inbuf = { 0, NULL };
 	enum Codec_T ct = DECODER;
-	FORMAT_REPR(repr);
+	REPR_FORMAT(repr);
+	BUFFER(inbuf);
 
 	const struct option longopts[] = {
 		{ "encode", 0, NULL, 'e' },
@@ -245,6 +245,6 @@ main(int argc, char **argv)
 	}
 
 	repr_destroy(&repr);
-	free(inbuf.data);
+	free(buffer_data(&inbuf));
 	return -rv;
 }

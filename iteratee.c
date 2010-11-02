@@ -6,6 +6,7 @@
  * published by the Free Software Foundation.
  */
 #include <stdio.h>
+
 #include "util.h"
 #include "iteratee.h"
 
@@ -21,9 +22,9 @@ head(uint8_t *c, struct Stream *str)
 		return IE_CONT;
 
 	*c = *str->data;
-
 	++str->data;
 	--str->size;
+
 	return IE_DONE;
 }
 

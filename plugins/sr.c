@@ -5,54 +5,38 @@
  * it under the terms of the GNU General Public License version 2 as
  * published by the Free Software Foundation.
  */
+#include <stdint.h>
 #include <stdio.h>
-#include "../util.h"
+
 #include "ctt.h"
+#include "../buffer.h"
+#include "../util.h"
 
-#define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
-
-/*
- * Decode binary DER data to human-readable representation.
- *
- * @src: data to decode
- * @dest: resulting string or error message
- * @n: capacity of `dest'
- *
- * Function writes at most `n' bytes, including terminating '\0', to
- * `dest'.  Error message will be stored in `dest' in an error occurs.
- *
- * Return value:
- *    0 - success;
- *   -1 - decoding has failed or resulting string exceeds `n' bytes.
- */
 int
-decode_CallTransactionType(const struct Pstring *src, char *dest, size_t n)
+decode_CallTransactionType(struct Buffer *dest, const uint8_t *src, size_t n)
 {
-	if (src->size != 1) {
-		snprintf(dest, n, "decode_CallTransactionType: 1 byte expected"
-			 ", %lu received", (unsigned long) src->size);
+	if (n != 1) { /* XXX buffer_printf ? */
+		snprintf((char *) dest->wptr, dest->size,
+			 "decode_CallTransactionType: 1 byte expected,"
+			 " %lu received", (unsigned long) n);
 		return -1;
 	}
 
-	const uint8_t x = *src->data;
+	const uint8_t x = *src;
 
 	if (x >= ARRAY_SIZE(ctt_idx) || ctt_idx[x] == 0) {
-		snprintf(dest, n, "decode_CallTransactionType:"
-			 " unsupported value: %u", x);
+		snprintf((char *) dest->wptr, dest->size,
+			 "decode_CallTransactionType: unsupported value: %u",
+			 x);
 		return -1;
 	}
 
-	return ((size_t) snprintf(dest, n, "%s (%u)",
-				  ctt_dict[ctt_idx[x]].symbol, x) < n) ?
-		0 : -1;
+	return ((size_t) snprintf((char *) dest->wptr, dest->size, "%s (%u)",
+				  ctt_dict[ctt_idx[x]].symbol, x) < dest->size)
+		? 0 : -1;
 }
 
 #if 0 /*XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX*/
-/* int */
-/* encode_callTransactionType(const struct Pstring *src, struct Pstring *dest) */
-/* { */
-/* } */
-
 static inline int
 _ctt_cmp(const void *k, const void *m)
 {
@@ -71,4 +55,4 @@ _ctt_tonum(const char *src, uint8_t *dest)
 	*dest = p->number;
 	return 0;
 }
-#endif /*XXX*/
+#endif /*XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX*/

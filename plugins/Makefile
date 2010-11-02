@@ -15,8 +15,9 @@ CFLAGS += -fpic
 LDFLAGS = -shared
 
 SONAMES := $(SRC:%.c=libunder_%.so.0)
+SYMLINKS := $(basename $(SONAMES))
 
-all: $(SONAMES)
+all: $(SONAMES) $(SYMLINKS)
 
 OBJ := $(SRC:.c=.o)
 -include $(OBJ:.o=.d)
@@ -31,6 +32,9 @@ libunder_%.so.0: %.o
 # XXX Output file should be versioned.
 # http://tldp.org/HOWTO/Program-Library-HOWTO/shared-libraries.html#AEN95
 
+%.so: %.so.0
+	ln -s $^ $@
+
 ctt.h: ctt.in gen-ctt.sh
 	./gen-ctt.sh $< >$@
 
@@ -38,6 +42,6 @@ mostlyclean:
 	rm -f $(OBJ) $(OBJ:.o=.d) ctt.h
 
 clean: mostlyclean
-	rm -f $(SONAMES)
+	rm -f $(SONAMES) $(SYMLINKS)
 
 .PHONY: mostlyclean clean

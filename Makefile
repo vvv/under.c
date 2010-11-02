@@ -11,7 +11,7 @@ CFLAGS = -g -Wall -Wextra
 LDLIBS = -ldl
 
 PROG = under
-SRC = iteratee.c decoder.c encoder.c codec.c under.c util.c repr.c
+SRC = iteratee.c decoder.c encoder.c codec.c under.c util.c repr.c buffer.c
 
 ## ---------------------------------------------------------------------
 ## The stuff below is not supposed to be touched frequently

@@ -6,13 +6,15 @@
  * published by the Free Software Foundation.
  */
 #include <assert.h>
+
 #include "codec.h"
 #include "decoder.h"
 #include "encoder.h"
+#include "util.h"
 
 IterV
 run_codec(enum Codec_T type, void **z, struct Stream *str,
-	  const struct Format_Repr *repr)
+	  const struct Repr_Format *repr)
 {
 	if (type == DECODER) {
 		if (*z == NULL) {
@@ -35,7 +37,7 @@ void
 free_codec(enum Codec_T type, void *z)
 {
 	if (type == DECODER)
-		free(z);
+		free_DecSt(z);
 	else if (type == ENCODER)
 		free_EncSt(z);
 	else

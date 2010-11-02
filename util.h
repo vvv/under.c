@@ -29,11 +29,13 @@
  * @addr: start of data
  * @size: number of bytes
  */
-void debug_hexdump(const char *msg, void *addr, size_t size);
+void debug_hexdump(const char *msg, const void *addr, size_t size);
 #else
 #  define debug_print(...)
 #  define debug_hexdump(...)
 #endif
+
+#define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
 
 #ifndef MAX
 #  define MAX(x, y) ((x) > (y) ? (x) : (y))
@@ -43,21 +45,21 @@ void debug_hexdump(const char *msg, void *addr, size_t size);
 #endif
 
 static inline void *
-xmalloc(size_t sz)
+xmalloc(size_t size)
 {
-	void *rv = malloc(sz);
-	if (rv == NULL)
+	void *p = malloc(size);
+	if (p == NULL)
 		die("Out of memory, malloc failed");
-	return rv;
+	return p;
 }
 
 static inline void *
-xrealloc(void *ptr, size_t sz)
+xrealloc(void *ptr, size_t size)
 {
-	void *rv = realloc(ptr, sz);
-	if (rv == NULL)
+	void *p = realloc(ptr, size);
+	if (p == NULL)
 		die("Out of memory, realloc failed");
-	return rv;
+	return p;
 }
 
 /* Allocate memory for type and fill it with zero-valued bytes */
@@ -82,11 +84,5 @@ streq(const char *s1, const char *s2)
  * eventually.
  */
 void set_error(char **errmsg, const char *format, ...);
-
-/* Pascal string */
-struct Pstring {
-	size_t size;
-	uint8_t *data;
-};
 
 #endif /* _UTIL_H */

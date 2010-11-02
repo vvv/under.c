@@ -9,6 +9,10 @@
 #include <ctype.h>
 #include <assert.h>
 
+#include "encoder.h"
+#include "asn1.h"
+#include "util.h"
+
 #ifndef _BSD_SOURCE
 #  define _BSD_SOURCE
 #endif
@@ -22,31 +26,18 @@
 # endif
 #endif
 
-#include "encoder.h"
-#include "asn1.h"
-#include "util.h"
-
-static uint8_t *encbuf = NULL;
-enum { ENCBUF_SIZE = 1024 };
-
 void
 init_EncSt(struct EncSt *z)
 {
-	assert(encbuf == NULL);
-
-	encbuf = xmalloc(ENCBUF_SIZE);
-	z->acc.size = ENCBUF_SIZE;
-	z->acc.data = encbuf;
-
+	INIT_BUFFER(&z->acc);
+	buffer_resize(&z->acc, 1024);
 	INIT_LIST_HEAD(&z->bt);
 }
 
 void
 free_EncSt(struct EncSt *z)
 {
-	free(encbuf);
-	encbuf = NULL;
-
+	free(buffer_data(&z->acc));
 	free(z);
 }
 
@@ -209,32 +200,27 @@ read_header(struct ASN1_Header *tag, bool *nil, struct Stream *str)
 	return IE_DONE;
 }
 
-/* Append memory area to `dest' */
-static int
-putmem(const void *src, size_t n, struct Pstring *dest, char **errmsg)
-{
-	if (dest->size < n) {
-		set_error(errmsg, "Insufficient capacity of encoded bytes'"
-			  " accumulator");
-		return -1;
-	}
-
-	memcpy(dest->data, src, n);
-	dest->data += n;
-	dest->size -= n;
-	return 0;
-}
-
-/* Append a byte to `dest' */
 static inline int
-putbyte(uint8_t c, struct Pstring *dest, char **errmsg)
+putmem(struct Buffer *dest, const void *src, size_t n, char **errmsg)
 {
-	return putmem(&c, 1, dest, errmsg);
+	return buffer_put(dest, src, n, errmsg, "encoded bytes' accumulator");
 }
+
+static inline int
+putbyte(struct Buffer *dest, uint8_t c, char **errmsg)
+{
+	return putmem(dest, &c, 1, errmsg);
+}
+
+/* Read-only memory region */
+struct Pstring {
+	const uint8_t *data;
+	size_t size;
+};
 
 /* Parse '\s*([0-9a-fA-F]{2}(\s+[0-9a-fA-F]{2})*\s*)?"' regexp */
 static IterV
-_primval(struct Pstring *dest, struct EncSt *z, struct Stream *str)
+primval(struct Pstring *dest, struct Buffer *acc, struct Stream *str)
 {
 	static uint8_t nibble = 0;
 	static bool expect_space = false;
@@ -252,7 +238,6 @@ _primval(struct Pstring *dest, struct EncSt *z, struct Stream *str)
 
 			if (isspace(c)) {
 				expect_space = false;
-
 				if (drop_while(_isspace, str) == IE_CONT)
 					return IE_CONT;
 
@@ -279,8 +264,8 @@ _primval(struct Pstring *dest, struct EncSt *z, struct Stream *str)
 			continue;
 		} else {
 			const char s[] = { nibble, c, 0 };
-			if (putbyte(strtoul(s, NULL, 16), &z->acc,
-				    &str->errmsg) != 0)
+			if (putbyte(acc, strtoul(s, NULL, 16), &str->errmsg)
+			    != 0)
 				return IE_CONT;
 			++dest->size;
 
@@ -301,12 +286,12 @@ read_primitive(struct Pstring *dest, struct EncSt *z, struct Stream *str)
 
 	switch (cont) {
 	case 0:
-		dest->data = z->acc.data;
+		dest->data = z->acc.wptr;
 		dest->size = 0;
 
 		cont = 1;
 	case 1:
-		if (_primval(dest, z, str) == IE_CONT)
+		if (primval(dest, &z->acc, str) == IE_CONT)
 			return IE_CONT;
 
 		cont = 2;
@@ -334,44 +319,44 @@ read_primitive(struct Pstring *dest, struct EncSt *z, struct Stream *str)
 }
 
 /*
- * Append encoding of "high" tag number to an accumulator.
+ * Append encoding of "high" tag number to accumulator.
  * Note, that the first argument is expected to be greater than 30.
  */
 static int
-encode_htagnum(uint32_t n, struct Pstring *acc, char **errmsg)
+encode_htagnum(struct Buffer *acc, uint32_t val, char **errmsg)
 {
-	uint8_t buf[sizeof(n)*8/7 + 1];
+	uint8_t buf[sizeof(val)*8/7 + 1];
 	register uint8_t *p = buf + sizeof(buf);
 
 	do {
-		*(--p) = 0x80 | (n & 0x7f);
-		n >>= 7;
-	} while (n != 0);
+		*(--p) = 0x80 | (val & 0x7f);
+		val >>= 7;
+	} while (val != 0);
 
 	buf[sizeof(buf) - 1] &= 0x7f;
 
-	return putmem(p, buf + sizeof(buf) - p, acc, errmsg);
+	return putmem(acc, p, buf + sizeof(buf) - p, errmsg);
 }
 
 /*
  * Append encoding of "long" length to accumulator.
  *
- * @n: length value
+ * @val: length value to encode
  *
  * Note, that the first argument is expected to be greater than 0x7f.
  */
 static int
-encode_longlen(size_t n, struct Pstring *acc, char **errmsg)
+encode_longlen(struct Buffer *acc, size_t val, char **errmsg)
 {
-	const uint64_t ben = htobe64(n);
+	const uint64_t ben = htobe64(val);
 	const uint8_t *p = (void *) &ben;
 	const uint8_t *end = p + sizeof(ben);
 
 	while (*p == 0 && p < end)
 		++p;
 
-	return (putbyte(0x80 | (end - p), acc, errmsg) == 0 &&
-		putmem(p, end - p, acc, errmsg) == 0) ?
+	return (putbyte(acc, 0x80 | (end - p), errmsg) == 0 &&
+		putmem(acc, p, end - p, errmsg) == 0) ?
 		0 : -1;
 }
 
@@ -382,39 +367,41 @@ union U_Header {
 
 /* Encode tag header and write the encoding to accumulator */
 static int
-encode_header(union U_Header *io, struct Pstring *acc, char **errmsg)
+encode_header(union U_Header *io, struct Buffer *acc, char **errmsg)
 {
-	struct Pstring r = { 0, acc->data };
+	struct Pstring encoding = { acc->wptr, 0 };
+
 	const struct ASN1_Header *h = &io->rec;
 	debug_print("encode_header: %c%u %s %lu \\", "uacp"[h->cls], h->num,
 		    h->cons_p ? "cons" : "prim", (unsigned long) h->len);
 
-	if (putbyte((h->cls << 6) | (h->cons_p ? 0x20 : 0) |
-		    (h->num <= 30 ? h->num : 0x1f), acc, errmsg) != 0)
+	if (putbyte(acc, (h->cls << 6) | (h->cons_p ? 0x20 : 0) |
+		    (h->num <= 30 ? h->num : 0x1f), errmsg) != 0)
 		return -1;
-	++r.size;
+	++encoding.size;
 
 	if (h->num > 30) { /* high tag number */
 		const size_t orig_size = acc->size;
-		if (encode_htagnum(h->num, acc, errmsg) != 0)
+		if (encode_htagnum(acc, h->num, errmsg) != 0)
 			return -1;
-		r.size += orig_size - acc->size;
+		encoding.size += orig_size - acc->size;
 	}
 
 	if (h->len < 0x80) { /* short length */
-		if (putbyte(h->len, acc, errmsg) != 0)
+		if (putbyte(acc, h->len, errmsg) != 0)
 			return -1;
-		++r.size;
+		++encoding.size;
 	} else { /* long length */
 		const size_t orig_size = acc->size;
-		if (encode_longlen(h->len, acc, errmsg) != 0)
+		if (encode_longlen(acc, h->len, errmsg) != 0)
 			return -1;
-		r.size += orig_size - acc->size;
+		encoding.size += orig_size - acc->size;
 	}
 
-	debug_hexdump("encode_header: \\", r.data, r.size);
-	io->enc.data = r.data;
-	io->enc.size = r.size;
+	debug_hexdump("encode_header: \\", encoding.data, encoding.size);
+	io->enc.data = encoding.data;
+	io->enc.size = encoding.size;
+
 	return 0;
 }
 
@@ -605,7 +592,7 @@ tag_end:
 	return IE_DONE;
 }
 
-/* Write Pascal string to stdout  [XXX Move to `util.h'?] */
+/* Write Pascal string to stdout */
 static inline void
 putps(const struct Pstring *s)
 {
@@ -639,8 +626,7 @@ write_tree(struct EncSt *z)
 		}
 	}
 
-	z->acc.size = ENCBUF_SIZE;
-	z->acc.data = encbuf;
+	buffer_reset(&z->acc);
 }
 
 IterV

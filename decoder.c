@@ -8,10 +8,28 @@
 #include <assert.h>
 #include <stdio.h>
 #include <stdarg.h>
+
 #include "decoder.h"
+#include "buffer.h"
 #include "asn1.h"
 #include "util.h"
 #include "repr.h"
+
+void
+free_DecSt(struct DecSt *z)
+{
+	if (z->buf_repr != NULL) {
+		free(buffer_data(z->buf_repr));
+		free(z->buf_repr);
+	}
+
+	if (z->buf_raw != NULL) {
+		free(buffer_data(z->buf_raw));
+		free(z->buf_raw);
+	}
+
+	free(z);
+}
 
 #ifdef FILLERS
 static inline bool
@@ -45,7 +63,7 @@ decode_header(struct ASN1_Header *tag, struct Stream *str)
 #endif
 
 		cont = 1;
-	case 1: /* Identifier octet(s) -- cases 0..2 */
+	case 1: /* Identifier octet(s) -- cases 1, 2 */
 		if (str->type == S_EOF)
 			return IE_DONE;
 
@@ -115,12 +133,12 @@ tagnum_done:
 }
 
 /*
- * Print hex dump of a primitive encoding.
+ * Print hexadecimal dump of stream contents.
  *
- * @enough: Are there enough bytes in `str' to reach the end of tag?
+ * @final: Does `*str' contain all the bytes that need to be hexdumped?
  */
 static IterV
-print_prim(bool enough, struct Stream *str)
+print_hexdump(struct Stream *str, bool final)
 {
 	static int cont = 0;
 
@@ -133,9 +151,9 @@ print_prim(bool enough, struct Stream *str)
 		{
 			uint8_t c;
 			if (head(&c, str) == IE_CONT) {
-				if (!enough)
-					return IE_CONT;
-				break; /* ``empty'' tag  (clen == 0) */
+				if (final)
+					break; /* "empty" tag  (clen == 0) */
+				return IE_CONT;
 			}
 			printf("%02x", c);
 		}
@@ -145,20 +163,127 @@ print_prim(bool enough, struct Stream *str)
 		for (; str->size > 0; ++str->data, --str->size)
 			printf(" %02x", *str->data);
 
-		if (!enough)
-			return IE_CONT;
+		if (final)
+			break;
+		return IE_CONT;
 
-		break;
 	default:
 		assert(0 == 1);
 	}
 
 	putchar('"');
-
 	cont = 0;
 	return IE_DONE;
 }
-/* ------------------------------------------------------------------ */
+
+static void
+print_hexdump_strict(const uint8_t *src, size_t n)
+{
+	putchar('"');
+
+	if (n != 0) {
+		printf("%02x", *src);
+		while (--n != 0)
+			printf(" %02x", *(++src));
+	}
+
+	putchar('"');
+}
+
+static struct Buffer *
+new_buffer(size_t size)
+{
+	struct Buffer *buf = xmalloc(sizeof(struct Buffer));
+	INIT_BUFFER(buf);
+
+	if (buffer_resize(buf, size) != 0)
+		die("Out of memory, buffer_resize failed");
+
+	return buf;
+}
+
+/*
+ * Print representation of a primitive encoding.
+ *
+ * @str: Pointer to the stream that contains primitive encoding
+ *       (probably, only part of it).
+ * @enough: Are there enough bytes in the stream to reach the end of encoding?
+ * @_decode: Pointer to the function that converts raw bytes to
+ *           human-friendly representation.
+ */
+static IterV
+print_prim(struct Stream *str, bool enough, Repr_Codec _decode, struct DecSt *z)
+{
+	assert(str->type == S_CHUNK);
+
+	if (_decode == NULL)
+		return print_hexdump(str, enough);
+	else if (z->buf_repr == NULL)
+		z->buf_repr = new_buffer(128);
+
+	static int cont = 0;
+
+	switch (cont) {
+	case 0:
+		if (enough) {
+			if (_decode(z->buf_repr, str->data, str->size) == 0) {
+				str->data += str->size;
+				str->size = 0;
+				printf("[%s]", buffer_data(z->buf_repr));
+
+				break;
+			} else {
+				fprintf(stderr, "*WARNING* print_prim: %s",
+					buffer_data(z->buf_repr));
+				buffer_reset(z->buf_repr);
+
+				return print_hexdump(str, true);
+			}
+		} else if (z->buf_raw == NULL) {
+			z->buf_raw = new_buffer(64);
+		}
+
+		cont = 1;
+	case 1:
+		if (enough) {
+			if (buffer_put(z->buf_raw, str->data, str->size,
+				       &str->errmsg, "raw bytes' accumulator")
+			    != 0)
+				return IE_CONT;
+
+			str->data += str->size;
+			str->size = 0;
+
+			const uint8_t * const raw = buffer_data(z->buf_raw);
+			const size_t n = buffer_len(z->buf_raw);
+
+			if (_decode(z->buf_repr, raw, n) == 0) {
+				printf("[%s]", buffer_data(z->buf_repr));
+			} else {
+				fprintf(stderr, "*WARNING* print_prim: %s",
+					buffer_data(z->buf_repr));
+
+				print_hexdump_strict(raw, n);
+			}
+			break;
+		} else {
+			(void) buffer_put(z->buf_raw, str->data, str->size,
+					  &str->errmsg,
+					  "raw bytes' accumulator");
+			return IE_CONT;
+		}
+
+	default:
+		assert(0 == 1);
+	}
+
+	buffer_reset(z->buf_repr);
+	if (z->buf_raw != NULL)
+		buffer_reset(z->buf_raw);
+	cont = 0;
+
+	return IE_DONE;
+}
 
 /* Type of elements of `DecSt.caps' list */
 struct Capacity {
@@ -297,7 +422,7 @@ decode(struct DecSt *z, struct Stream *master)
 		}
 	}
 
-	struct Stream str; /* Substream, passed to an iteratee */
+	struct Stream str; /* Substream being passed to an iteratee */
 	str.type = master->type;
 	str.data = master->data;
 	str.errmsg = master->errmsg;
@@ -315,7 +440,9 @@ decode(struct DecSt *z, struct Stream *master)
 #else
 			? decode_header(&tag, &str)
 #endif
-			: print_prim(remcap(z) <= str.size, &str);
+			: print_prim(&str, remcap(z) <= str.size,
+				     repr_from_raw(z->repr, tag.cls, tag.num),
+				     z);
 		assert(indic == IE_DONE || indic == IE_CONT);
 
 		decrease_capacities(orig_size - str.size, z);

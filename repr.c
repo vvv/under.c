@@ -7,9 +7,7 @@
  */
 #define _GNU_SOURCE
 #include <stdio.h>
-#include <string.h>
 #include <assert.h>
-#include <stdlib.h>
 #include <regex.h>
 #include <ctype.h>
 #include <dlfcn.h>
@@ -24,9 +22,12 @@ enum { HASH_NBITS = 8 };
 struct Repr {
 	struct hlist_node _node;
 
-	uint32_t key; /* hash key*/
-	char *name; /* human-friendly tag name (e.g., "recordType") */
-	int (*decode)(const struct Pstring *src, char *dest, size_t n);
+	uint32_t key; /* Hash key*/
+	char *name; /* Human-friendly tag name (e.g., "recordType") */
+
+	/* Converters: */
+	Repr_Codec decode; /* Raw bytes to human-friendly representation */
+	/* Repr_Codec encode; /\* Representation to raw bytes *\/ */
 };
 
 struct Plugin {
@@ -39,7 +40,7 @@ struct Plugin {
 #define NOLIB_HANDLE (void *) 1
 
 void
-repr_destroy(struct Format_Repr *fmt)
+repr_destroy(struct Repr_Format *fmt)
 {
 	struct hlist_node *x, *tmp;
 	struct Plugin *p;
@@ -200,7 +201,7 @@ bucket_getitem(const struct hlist_head *bucket, uint32_t key)
 }
 
 static int
-add_repr(struct Format_Repr *fmt, const char *tag, const char *name,
+add_repr(struct Repr_Format *fmt, const char *tag, const char *name,
 	 const char *plugin, const char *codec, const char *conf_path)
 {
 #ifdef DEBUG
@@ -246,7 +247,7 @@ add_repr(struct Format_Repr *fmt, const char *tag, const char *name,
 
 #ifdef DEBUG
 static void
-debug_show_format_repr(const struct Format_Repr *fmt)
+debug_show_format(const struct Repr_Format *fmt)
 {
 	const struct hlist_node *x;
 
@@ -273,11 +274,11 @@ debug_show_format_repr(const struct Format_Repr *fmt)
 	fputc('\n', stderr);
 }
 #else
-#  define debug_show_format_repr(...)
+#  define debug_show_format(...)
 #endif
 
 static int
-parse_conf(struct Format_Repr *dest, FILE *f, const char *conf_path)
+parse_conf(struct Repr_Format *dest, FILE *f, const char *conf_path)
 {
 	regex_t re_rstrip; /* trailing whitespace and/or comments */
 	assert(regcomp(&re_rstrip, "[ \t]*(#.*)?$", REG_EXTENDED) == 0);
@@ -333,7 +334,7 @@ parse_conf(struct Format_Repr *dest, FILE *f, const char *conf_path)
 			goto end;
 	}
 
-	debug_show_format_repr(dest);
+	debug_show_format(dest);
 	retval = 0;
 end:
 	free(line);
@@ -369,7 +370,7 @@ check_format_argument(struct hlist_head *libs, const char *conf_path)
 }
 
 int
-repr_create(struct Format_Repr *dest, const char *conf_path)
+repr_create(struct Repr_Format *dest, const char *conf_path)
 {
 	debug_print("repr_create: `%s'", conf_path);
 
@@ -392,18 +393,24 @@ repr_create(struct Format_Repr *dest, const char *conf_path)
 static inline const struct Repr *
 htab_getitem(const struct hlist_head *htab, uint32_t key)
 {
-        return bucket_getitem(htab + hash_long(key, HASH_NBITS), key);
+        return htab == NULL ? NULL
+		: bucket_getitem(htab + hash_long(key, HASH_NBITS), key);
 }
 
 void
-repr_show_header(const struct Format_Repr *fmt, enum Tag_Class cls,
+repr_show_header(const struct Repr_Format *fmt, enum Tag_Class cls,
 		 uint32_t num)
 {
-	const struct Repr *r;
-
-	if (fmt->dict == NULL ||
-	    (r = htab_getitem(fmt->dict, tagkey(cls, num))) == NULL)
+	const struct Repr *r = htab_getitem(fmt->dict, tagkey(cls, num));
+	if (r == NULL)
 		printf("%c%u", "uacp"[cls], num);
 	else
 		printf(":%s", r->name);
+}
+
+Repr_Codec
+repr_from_raw(const struct Repr_Format *fmt, enum Tag_Class cls, uint32_t num)
+{
+	const struct Repr *r = htab_getitem(fmt->dict, tagkey(cls, num));
+	return r == NULL ? NULL : r->decode;
 }
