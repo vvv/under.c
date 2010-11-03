@@ -63,39 +63,33 @@ adjust_buffer(struct Buffer *buf, FILE *f)
 /*
  * Read another block of data from an input file.
  *
- * @dest: memory buffer to read into
- * @src: file to read from
- * @stream: a stream to update
+ * @dest: memory location to store data at
+ * @size: maximum number of bytes to read
+ * @src: stream to read data from
+ * @errmsg: where to put error message
  *
- * Return the number of bytes read. Return zero in case of EOF or error.
+ * Return the number of bytes read. Zero is returned if the
+ * end-of-file is reached or an error occurs.
  */
 static size_t
-read_block(struct Buffer *dest, FILE *src, struct Stream *stream)
+read_block(void *dest, size_t size, FILE *src, char **errmsg)
 {
-	assert(dest->size == dest->_max_size);
-	const size_t n = fread(dest->wptr, 1, dest->size, src);
+	const size_t n = fread(dest, 1, size, src);
 
 	if (n == 0) {
-		stream->type = S_EOF;
-
 		if (feof(src)) {
 			debug_print("read_block: EOF");
-			stream->errmsg = NULL;
+			assert(*errmsg == NULL);
+			*errmsg = NULL;
 		} else if (ferror(src)) {
 			debug_print("read_block: IO error");
-			set_error(&stream->errmsg, strerror(errno));
+			set_error(errmsg, strerror(errno));
 		} else {
 			assert(0 == 1);
 		}
-
-		return 0;
 	}
 
 	debug_print("read_block: %lu bytes read", (unsigned long) n);
-	stream->type = S_CHUNK;
-	stream->data = dest->wptr;
-	stream->size = n;
-
 	return n;
 }
 
@@ -109,7 +103,7 @@ static int
 process_file(enum Codec_T ct, const char *inpath, struct Buffer *inbuf,
 	     const struct Repr_Format *repr)
 {
-	debug_print("process_file: `%s'", inpath);
+	debug_print("process_file: \"%s\"", inpath);
 	FILE *f = NULL;
 
 	if (streq(inpath, "-")) {
@@ -124,19 +118,19 @@ process_file(enum Codec_T ct, const char *inpath, struct Buffer *inbuf,
 		return -1;
 	}
 
-	int retval = 0;
+	int retval = -1;
 	size_t filepos = 0;
 	struct Stream str = STREAM_INIT;
 	void *z = NULL;
 
 	for (;;) {
-		const size_t orig_size = read_block(inbuf, f, &str);
-		assert(str.type == S_CHUNK || (str.type == S_EOF &&
-					       orig_size == 0));
+		const size_t orig_size = read_block(inbuf->wptr, inbuf->size,
+						    f, &str.errmsg);
+		str.type = ((str.size = orig_size) == 0) ? S_EOF : S_CHUNK;
+		str.data = inbuf->wptr;
 
 		if (str.type == S_EOF && str.errmsg != NULL) {
 			error_at_line(0, 0, inpath, filepos, "%s", str.errmsg);
-			retval = -1;
 			break;
 		}
 
@@ -144,16 +138,16 @@ process_file(enum Codec_T ct, const char *inpath, struct Buffer *inbuf,
 		assert(indic == IE_DONE || indic == IE_CONT);
 		filepos += orig_size - str.size;
 
-		if (indic == IE_DONE)
-			break;
-
-		/* IE_CONT */
-		if (str.errmsg != NULL) {
+		if (indic == IE_CONT && str.errmsg != NULL) {
 			error_at_line(0, 0, inpath, filepos, "%s", str.errmsg);
-			retval = -1;
 			break;
-		} else {
-			assert(str.size == 0);
+		}
+
+		assert(str.size == 0);
+
+		if (indic == IE_DONE) {
+			retval = 0;
+			break;
 		}
 	}
 

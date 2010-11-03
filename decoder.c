@@ -60,6 +60,7 @@ decode_header(struct ASN1_Header *tag, struct Stream *str)
 
 	switch (cont) {
 	case 0:
+		debug_print("decode_header, cont=%d", cont);
 #ifdef FILLERS
 		if (at_root_p && drop_while(isfiller, str) == IE_CONT)
 			return IE_CONT;
@@ -67,6 +68,8 @@ decode_header(struct ASN1_Header *tag, struct Stream *str)
 
 		cont = 1;
 	case 1: /* Identifier octet(s) -- cases 1, 2 */
+		debug_print("decode_header, cont=%d", cont);
+
 		if (str->type == S_EOF)
 			return IE_DONE;
 
@@ -75,6 +78,8 @@ decode_header(struct ASN1_Header *tag, struct Stream *str)
 
 		tag->cls = (c & 0xc0) >> 6;
 		tag->cons_p = (c & 0x20) != 0;
+		debug_print(" \\_ tag_cls = '%c', %s",
+			    "uacp"[tag->cls], tag->cons_p ? "cons" : "prim");
 
 		if ((tag->num = c & 0x1f) == 0x1f)
 			tag->num = 0; /* tag number > 30 */
@@ -83,6 +88,8 @@ decode_header(struct ASN1_Header *tag, struct Stream *str)
 
 		cont = 2;
 	case 2: /* Tag number > 30 (``high'' tag number) */
+		debug_print("decode_header, cont=%d", cont);
+
 		for (; str->size > 0 && *str->data & 0x80;
 		     ++str->data, --str->size)
 			tag->num = (tag->num << 7) | (*str->data & 0x7f);
@@ -97,9 +104,12 @@ tagnum_done:
 				  tag->num);
 			return IE_CONT;
 		}
+		debug_print(" \\_ tag_num = %u", tag->num);
 
 		cont = 3;
 	case 3: /* Initial length octet */
+		debug_print("decode_header, cont=%d", cont);
+
 		if (head(&c, str) == IE_CONT)
 			return IE_CONT;
 
@@ -109,22 +119,36 @@ tagnum_done:
 			return IE_CONT;
 		}
 
-		if (c & 0x80) {
-			len_sz = c & 0x7f; /* long form */
+		if (c & 0x80) { /* long form */
+			len_sz = c & 0x7f;
+			if (len_sz > 8) {
+				set_error(&str->errmsg, "Too many octets"
+					  " as for length encoding: %lu",
+					  (unsigned long) len_sz);
+				return IE_CONT;
+			}
+
+			debug_print(" \\_ len_sz = %lu",
+				    (unsigned long) len_sz);
 			tag->len = 0;
-		} else {
-			tag->len = c; /* short form*/
+		} else { /* short form*/
+			tag->len = c;
+			debug_print(" \\_ tag_len = %lu",
+				    (unsigned long) tag->len);
 			break;
 		}
 
 		cont = 4;
 	case 4: /* Subsequent length octet(s) */
+		debug_print("decode_header, cont=%d", cont);
+
 		for (; str->size > 0 && len_sz > 0;
 		     --len_sz, ++str->data, --str->size)
 			tag->len = (tag->len << 8) | *str->data;
 
 		if (len_sz > 0)
 			return IE_CONT;
+		debug_print(" \\_ tag_len = %lu", (unsigned long) tag->len);
 
 		break;
 	default:
@@ -147,10 +171,12 @@ print_hexdump(struct Stream *str, bool final)
 
 	switch (cont) {
 	case 0:
+		debug_print("print_hexdump, cont=%d", cont);
 		putchar('"');
 
 		cont = 1;
 	case 1:
+		debug_print("print_hexdump, cont=%d", cont);
 		{
 			uint8_t c;
 			if (head(&c, str) == IE_CONT) {
@@ -163,6 +189,8 @@ print_hexdump(struct Stream *str, bool final)
 
 		cont = 2;
 	case 2:
+		debug_print("print_hexdump, cont=%d", cont);
+
 		for (; str->size > 0; ++str->data, --str->size)
 			printf(" %02x", *str->data);
 
@@ -238,6 +266,7 @@ print_prim(struct Stream *str, bool enough, Repr_Codec _decode, struct DecSt *z)
 		z->buf_repr = new_buffer(128);
 
 	static int cont = 0;
+	debug_print("print_prim: cont=%d", cont);
 
 	switch (cont) {
 	case 0:
@@ -336,6 +365,8 @@ contained_p(size_t n, const struct DecSt *z)
 static void
 add_capacity(size_t n, struct DecSt *dest)
 {
+	debug_print("add_capacity %lu", (unsigned long) n);
+
 	struct Capacity *new = xmalloc(sizeof(struct Capacity));
 	new->value = n;
 
@@ -376,15 +407,17 @@ check_DecSt_invariant(const struct DecSt *z)
  * print that many closing parentheses.
  */
 static void
-delete_zero_capacities(struct DecSt *z)
+close_drained_containers(struct DecSt *z)
 {
-	struct list_head *p = z->caps.next;
-	while (p != &z->caps && capacity(p) == 0) {
-		__list_del(p->prev, p->next);
+	struct list_head *p, *t;
 
-		void *x = list_entry(p, struct Capacity, h);
-		p = p->next;
-		free(x);
+	list_for_each_safe(p, t, &z->caps) {
+		if (capacity(p) != 0)
+			break;
+
+		__list_del(p->prev, p->next);
+		free(list_entry(p, struct Capacity, h));
+		debug_print("zero capacity deleted");
 
 		--z->depth;
 		putchar(')');
@@ -442,9 +475,9 @@ decode(struct DecSt *z, struct Stream *master)
 	str.errmsg = master->errmsg;
 
 	for (;;) {
-		str.size = z->depth == 0 ?
+		const size_t orig_size = z->depth == 0 ?
 			master->size : MIN(remcap(z), master->size);
-		const size_t orig_size = str.size;
+		str.size = orig_size;
 		debug_show_decoder_state(z, &str, master, " %s", header_p ?
 					 "decode_header" : "print_prim");
 
@@ -467,8 +500,13 @@ decode(struct DecSt *z, struct Stream *master)
 		debug_show_decoder_state(z, &str, master, " => IE_%s",
 					 indic == IE_DONE ? "DONE" : "CONT");
 
-		if (indic == IE_CONT)
+		if (indic == IE_CONT) {
+			if (z->depth > 0 && remcap(z) == 0)
+				set_error(&master->errmsg, "Trying to go"
+					  " beyond the end of container");
+
 			return IE_CONT;
+		}
 
 		/* IE_DONE */
 		if (header_p) {
@@ -480,7 +518,7 @@ decode(struct DecSt *z, struct Stream *master)
 				add_capacity(0, z);
 			}
 
-			delete_zero_capacities(z);
+			close_drained_containers(z);
 
 			if (tag.len == 0)
 				goto line_feed;
@@ -498,7 +536,7 @@ decode(struct DecSt *z, struct Stream *master)
 				continue;
 			}
 		} else {
-			delete_zero_capacities(z);
+			close_drained_containers(z);
 			header_p = true;
 		}
 

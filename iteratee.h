@@ -64,8 +64,7 @@ struct Stream {
 	 * Error message.
 	 *
 	 * NULL if EOF was reached without error; otherwise this is a
-	 * pointer to an error message (or a control message in
-	 * general).
+	 * pointer to an error message (or a control message in general).
 	 */
 	char *errmsg;
 };
