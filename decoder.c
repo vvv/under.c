@@ -18,6 +18,9 @@
 void
 free_DecSt(struct DecSt *z)
 {
+	if (z == NULL)
+		return;
+
 	if (z->buf_repr != NULL) {
 		free(buffer_data(z->buf_repr));
 		free(z->buf_repr);
@@ -202,6 +205,19 @@ new_buffer(size_t size)
 	return buf;
 }
 
+#ifdef DEBUG
+#  define call(fp, dest, src, n) (fp)((dest), (src), (n))
+#else
+/* Call `fp', appending trailing '\0' to the buffer. */
+static inline int
+call(Repr_Codec fp, struct Buffer *dest, const uint8_t *src, size_t n)
+{
+	const int r = fp(dest, src, n);
+	*dest->wptr = 0; /* there's a reserved byte in a buffer */
+	return r;
+}
+#endif
+
 /*
  * Print representation of a primitive encoding.
  *
@@ -226,38 +242,38 @@ print_prim(struct Stream *str, bool enough, Repr_Codec _decode, struct DecSt *z)
 	switch (cont) {
 	case 0:
 		if (enough) {
-			if (_decode(z->buf_repr, str->data, str->size) == 0) {
-				str->data += str->size;
-				str->size = 0;
+			if (call(_decode, z->buf_repr, str->data, str->size)
+			    == 0) {
 				printf("[%s]", buffer_data(z->buf_repr));
-
-				break;
 			} else {
 				fprintf(stderr, "*WARNING* print_prim: %s",
 					buffer_data(z->buf_repr));
-				buffer_reset(z->buf_repr);
-
-				return print_hexdump(str, true);
+				print_hexdump_strict(str->data, str->size);
 			}
-		} else if (z->buf_raw == NULL) {
-			z->buf_raw = new_buffer(64);
+
+			break;
 		}
+
+		if (z->buf_raw == NULL)
+			z->buf_raw = new_buffer(64);
 
 		cont = 1;
 	case 1:
-		if (enough) {
-			if (buffer_put(z->buf_raw, str->data, str->size,
-				       &str->errmsg, "raw bytes' accumulator")
-			    != 0)
-				return IE_CONT;
+		if (buffer_put(z->buf_raw, str->data, str->size, &str->errmsg,
+			       "raw bytes' accumulator") != 0)
+			return IE_CONT;
 
+		if (!enough) {
 			str->data += str->size;
 			str->size = 0;
+			return IE_CONT;
+		}
 
+		{
 			const uint8_t * const raw = buffer_data(z->buf_raw);
 			const size_t n = buffer_len(z->buf_raw);
 
-			if (_decode(z->buf_repr, raw, n) == 0) {
+			if (call(_decode, z->buf_repr, raw, n) == 0) {
 				printf("[%s]", buffer_data(z->buf_repr));
 			} else {
 				fprintf(stderr, "*WARNING* print_prim: %s",
@@ -265,23 +281,21 @@ print_prim(struct Stream *str, bool enough, Repr_Codec _decode, struct DecSt *z)
 
 				print_hexdump_strict(raw, n);
 			}
-			break;
-		} else {
-			(void) buffer_put(z->buf_raw, str->data, str->size,
-					  &str->errmsg,
-					  "raw bytes' accumulator");
-			return IE_CONT;
 		}
 
+		break;
 	default:
 		assert(0 == 1);
 	}
 
+	str->data += str->size;
+	str->size = 0;
+
 	buffer_reset(z->buf_repr);
 	if (z->buf_raw != NULL)
 		buffer_reset(z->buf_raw);
-	cont = 0;
 
+	cont = 0;
 	return IE_DONE;
 }
 

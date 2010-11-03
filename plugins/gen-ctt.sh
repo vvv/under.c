@@ -45,6 +45,9 @@ cat <<EOF
  * `date -R`
  */
 
+#include <stdint.h>
+#include <stddef.h>
+
 /* A mapping of CallTransactionType (CTT) to its numeric value */
 static struct CTT_Pair {
 	const char *symbol;

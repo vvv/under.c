@@ -7,7 +7,7 @@ CPPFLAGS = -DFILLERS
 CFLAGS = -g -Wall -Wextra
 # CFLAGS = -O3 -Wall -Wextra
 
-# LDFLAGS = -rdynamic
+LDFLAGS = -rdynamic
 LDLIBS = -ldl
 
 PROG = under

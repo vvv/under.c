@@ -37,6 +37,9 @@ init_EncSt(struct EncSt *z)
 void
 free_EncSt(struct EncSt *z)
 {
+	if (z == NULL)
+		return;
+
 	free(buffer_data(&z->acc));
 	free(z);
 }

@@ -5,7 +5,7 @@
 CFLAGS := -g -Wall -Wextra
 # CFLAGS := -O3 -Wall -Wextra
 
-SRC = sr.c
+SRC = common.c sr.c
 
 ## ---------------------------------------------------------------------
 ## The stuff below is not supposed to be touched frequently
