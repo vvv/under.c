@@ -28,6 +28,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "util.h"
+
 typedef enum { IE_CONT, IE_DONE } IterV;
 
 /*
@@ -69,6 +71,18 @@ struct Stream {
 	char *errmsg;
 };
 #define STREAM_INIT { S_EOF, NULL, 0, NULL }
+
+
+/*
+ * Produce formatted error message.
+ *
+ * Do nothing if `str->errmsg' is not NULL, thus keeping the original
+ * error message.
+ *
+ * NOTE: This function calls malloc(3). Be sure to free(3)
+ * `str->errmsg' eventually.
+ */
+void set_error(struct Stream *str, const char *format, ...);
 
 /* -- Some primitive iteratees -------------------------------------- */
 

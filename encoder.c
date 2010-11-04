@@ -58,7 +58,7 @@ left_bracket(struct Stream *str)
 		return IE_CONT;
 
 	if (*str->data != '(') {
-		set_error(&str->errmsg, "`(' expected");
+		set_error(str, "`(' expected");
 		return IE_CONT;
 	}
 
@@ -75,7 +75,7 @@ any_bracket(uint8_t *c, struct Stream *str)
                 return IE_CONT;
 
         if (*str->data != ')' && *str->data != '(') {
-		set_error(&str->errmsg, "`)' or `(' expected");
+		set_error(str, "`)' or `(' expected");
 		return IE_CONT;
 	}
 
@@ -97,7 +97,7 @@ contents_type(bool *consp, struct Stream *str)
 	} else if (*str->data == '"') {
 		*consp = false;
 	} else {
-		set_error(&str->errmsg, "`(' or `\"' expected");
+		set_error(str, "`(' or `\"' expected");
 		return IE_CONT;
 	}
 
@@ -120,7 +120,7 @@ read_tag_class(enum Tag_Class *dest, bool *nil, struct Stream *str)
 	case 'p': *dest = TC_PRIVATE; break;
 	case ')': *nil = true; break;
 	default:
-		set_error(&str->errmsg, "Invalid tag class specification");
+		set_error(str, "Invalid tag class specification");
 		return IE_CONT;
 	}
 
@@ -138,8 +138,7 @@ read_tag_number(uint32_t *dest, struct Stream *str)
 	for (; str->size > 0 && isdigit(*str->data);
 	     ++str->data, --str->size) {
 		if (++n > 10) {
-			set_error(&str->errmsg,
-				  "Invalid tag number: too many digits");
+			set_error(str, "Invalid tag number: too many digits");
 			return IE_CONT;
 		}
 
@@ -150,20 +149,20 @@ read_tag_number(uint32_t *dest, struct Stream *str)
 		return IE_CONT;
 
 	if (n == 0) {
-		set_error(&str->errmsg, "Digit expected");
+		set_error(str, "Digit expected");
 		return IE_CONT;
 	}
 	n = 0;
 
 	if (!isspace(*str->data)) {
-		set_error(&str->errmsg, "White-space character expected");
+		set_error(str, "White-space character expected");
 		return IE_CONT;
 	}
 	++str->data;
 	--str->size;
 
 	if (*dest & 0xc0000000) { /* tagnum exceeds 30 bits */
-		set_error(&str->errmsg, "Enormous tag number", *dest);
+		set_error(str, "Enormous tag number", *dest);
 		return IE_CONT;
 	}
 
@@ -203,16 +202,24 @@ read_header(struct ASN1_Header *tag, bool *nil, struct Stream *str)
 	return IE_DONE;
 }
 
-static inline int
-putmem(struct Buffer *dest, const void *src, size_t n, char **errmsg)
+static int
+store(struct Buffer *dest, const void *src, size_t n, struct Stream *str)
 {
-	return buffer_put(dest, src, n, errmsg, "encoded bytes' accumulator");
+	int r;
+	if ((r = buffer_put(dest, src, n)) != 0)
+		set_error(str, "Insufficient capacity of encoded bytes'"
+			  " accumulator");
+	return r;
 }
 
-static inline int
-putbyte(struct Buffer *dest, uint8_t c, char **errmsg)
+static int
+store1(struct Buffer *dest, uint8_t c, struct Stream *str)
 {
-	return putmem(dest, &c, 1, errmsg);
+	int r;
+	if ((r = buffer_putc(dest, c)) != 0)
+		set_error(str, "Insufficient capacity of encoded bytes'"
+			  " accumulator");
+	return r;
 }
 
 /* Read-only memory region */
@@ -251,14 +258,14 @@ primval(struct Pstring *dest, struct Buffer *acc, struct Stream *str)
 				if (c == '"')
 					return IE_DONE;
 			} else if (expect_space) {
-				set_error(&str->errmsg, "White-space character"
+				set_error(str, "White-space character"
 					  " expected");
 				return IE_CONT;
 			}
 		}
 
 		if (!isxdigit(c)) {
-			set_error(&str->errmsg, "Hexadecimal digit expected");
+			set_error(str, "Hexadecimal digit expected");
 			return IE_CONT;
 		}
 
@@ -267,8 +274,7 @@ primval(struct Pstring *dest, struct Buffer *acc, struct Stream *str)
 			continue;
 		} else {
 			const char s[] = { nibble, c, 0 };
-			if (putbyte(acc, strtoul(s, NULL, 16), &str->errmsg)
-			    != 0)
+			if (store1(acc, strtoul(s, NULL, 16), str) != 0)
 				return IE_CONT;
 			++dest->size;
 
@@ -303,7 +309,7 @@ read_primitive(struct Pstring *dest, struct EncSt *z, struct Stream *str)
 			return IE_CONT;
 
 		if (*str->data != ')') {
-			set_error(&str->errmsg, "`)' expected");
+			set_error(str, "`)' expected");
 			return IE_CONT;
 		}
 		++str->data;
@@ -326,7 +332,7 @@ read_primitive(struct Pstring *dest, struct EncSt *z, struct Stream *str)
  * Note, that the first argument is expected to be greater than 30.
  */
 static int
-encode_htagnum(struct Buffer *acc, uint32_t val, char **errmsg)
+encode_htagnum(struct Buffer *acc, uint32_t val, struct Stream *str)
 {
 	uint8_t buf[sizeof(val)*8/7 + 1];
 	register uint8_t *p = buf + sizeof(buf);
@@ -338,18 +344,20 @@ encode_htagnum(struct Buffer *acc, uint32_t val, char **errmsg)
 
 	buf[sizeof(buf) - 1] &= 0x7f;
 
-	return putmem(acc, p, buf + sizeof(buf) - p, errmsg);
+	return store(acc, p, buf + sizeof(buf) - p, str);
 }
 
 /*
  * Append encoding of "long" length to accumulator.
  *
- * @val: length value to encode
+ * @acc: encoding bytes' accumulator
+ * @val: the length value to encode
+ * @str: where to put error messages
  *
  * Note, that the first argument is expected to be greater than 0x7f.
  */
 static int
-encode_longlen(struct Buffer *acc, size_t val, char **errmsg)
+encode_longlen(struct Buffer *acc, size_t val, struct Stream *str)
 {
 	const uint64_t ben = htobe64(val);
 	const uint8_t *p = (void *) &ben;
@@ -358,8 +366,8 @@ encode_longlen(struct Buffer *acc, size_t val, char **errmsg)
 	while (*p == 0 && p < end)
 		++p;
 
-	return (putbyte(acc, 0x80 | (end - p), errmsg) == 0 &&
-		putmem(acc, p, end - p, errmsg) == 0) ?
+	return (store1(acc, 0x80 | (end - p), str) == 0 &&
+		store(acc, p, end - p, str) == 0) ?
 		0 : -1;
 }
 
@@ -370,7 +378,7 @@ union U_Header {
 
 /* Encode tag header and write the encoding to accumulator */
 static int
-encode_header(union U_Header *io, struct Buffer *acc, char **errmsg)
+encode_header(union U_Header *io, struct Buffer *acc, struct Stream *str)
 {
 	struct Pstring encoding = { acc->wptr, 0 };
 
@@ -378,25 +386,25 @@ encode_header(union U_Header *io, struct Buffer *acc, char **errmsg)
 	debug_print("encode_header: %c%u %s %lu \\", "uacp"[h->cls], h->num,
 		    h->cons_p ? "cons" : "prim", (unsigned long) h->len);
 
-	if (putbyte(acc, (h->cls << 6) | (h->cons_p ? 0x20 : 0) |
-		    (h->num <= 30 ? h->num : 0x1f), errmsg) != 0)
+	if (store1(acc, (h->cls << 6) | (h->cons_p ? 0x20 : 0) |
+		    (h->num <= 30 ? h->num : 0x1f), str) != 0)
 		return -1;
 	++encoding.size;
 
 	if (h->num > 30) { /* high tag number */
 		const size_t orig_size = acc->size;
-		if (encode_htagnum(acc, h->num, errmsg) != 0)
+		if (encode_htagnum(acc, h->num, str) != 0)
 			return -1;
 		encoding.size += orig_size - acc->size;
 	}
 
 	if (h->len < 0x80) { /* short length */
-		if (putbyte(acc, h->len, errmsg) != 0)
+		if (store1(acc, h->len, str) != 0)
 			return -1;
 		++encoding.size;
 	} else { /* long length */
 		const size_t orig_size = acc->size;
-		if (encode_longlen(acc, h->len, errmsg) != 0)
+		if (encode_longlen(acc, h->len, str) != 0)
 			return -1;
 		encoding.size += orig_size - acc->size;
 	}
@@ -545,7 +553,7 @@ header:
 		if (at_root_frame(z))
 			break;
 
-		if (encode_header(&cur->header, &z->acc, &str->errmsg) != 0)
+		if (encode_header(&cur->header, &z->acc, str) != 0)
 			return IE_CONT; /* error */
 		*parent_len(z) += cur->header.enc.size + cur->contents->size;
 
@@ -564,8 +572,8 @@ tag_end:
 				cur = curnode(z);
 
 				*parent_len(z) += cur->header.rec.len;
-				if (encode_header(&cur->header, &z->acc,
-						  &str->errmsg) != 0)
+				if (encode_header(&cur->header, &z->acc, str)
+				    != 0)
 					return IE_CONT; /* error */
 
 				*parent_len(z) += cur->header.enc.size;
@@ -586,8 +594,7 @@ tag_end:
 
 	if (!list_empty(&z->bt)) {
 		assert(at_root_frame(z));
-		if (encode_header(&curnode(z)->header, &z->acc, &str->errmsg)
-		    != 0)
+		if (encode_header(&curnode(z)->header, &z->acc, str) != 0)
 			return IE_CONT;
 	}
 
@@ -639,7 +646,7 @@ encode(struct EncSt *z, struct Stream *str)
 		if (list_empty(&z->bt)) {
 			return IE_DONE;
 		} else {
-			set_error(&str->errmsg, "Unexpected EOF");
+			set_error(str, "Unexpected EOF");
 			return IE_CONT;
 		}
 	}

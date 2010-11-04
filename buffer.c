@@ -11,7 +11,6 @@
 #include <stdarg.h>
 
 #include "buffer.h"
-#include "util.h"
 
 int
 buffer_resize(struct Buffer *buf, size_t size)
@@ -27,15 +26,10 @@ buffer_resize(struct Buffer *buf, size_t size)
 }
 
 int
-buffer_put(struct Buffer *dest, const void *src, size_t n, char **errmsg,
-	   const char *buffer_name)
+buffer_put(struct Buffer *dest, const void *src, size_t n)
 {
-	if (dest->size < n) {
-		if (buffer_name != NULL)
-			set_error(errmsg, "Insufficient capacity of %s",
-				  buffer_name);
+	if (dest->size < n)
 		return -1;
-	}
 
 	memcpy(dest->wptr, src, n);
 	dest->wptr += n;

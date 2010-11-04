@@ -6,15 +6,29 @@
  * published by the Free Software Foundation.
  */
 #include <stdio.h>
+#include <stdarg.h>
 
-#include "util.h"
 #include "iteratee.h"
+
+void
+set_error(struct Stream *str, const char *format, ...)
+{
+	if (str->errmsg != NULL)
+		return;
+
+	va_list ap;
+	va_start(ap, format);
+
+	xasprintf(&str->errmsg, format, ap);
+
+	va_end(ap);
+}
 
 IterV
 head(uint8_t *c, struct Stream *str)
 {
 	if (str->type == S_EOF) {
-		set_error(&str->errmsg, "head: EOF");
+		set_error(str, "head: EOF");
 		return IE_CONT;
 	}
 

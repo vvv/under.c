@@ -5,8 +5,8 @@
  * it under the terms of the GNU General Public License version 2 as
  * published by the Free Software Foundation.
  */
-#define _GNU_SOURCE
 #include <stdio.h>
+#include <libgen.h>
 #include <assert.h>
 #include <regex.h>
 #include <ctype.h>
@@ -118,8 +118,7 @@ find_plugin(struct hlist_head *libs, const char *name)
 	}
 
 	lib = new_zeroed(struct Plugin);
-	if (asprintf(&lib->name, "%s", name) < 0)
-		die("Out of memory, asprintf failed");
+	xasprintf(&lib->name, "%s", name);
 
 	hlist_add_after(last, &lib->_node);
 	return lib;
@@ -224,8 +223,7 @@ add_repr(struct Repr_Format *fmt, const char *tag, const char *name,
 		return -1;
 	}
 
-	if (asprintf(&r->name, "%s", name) < 0)
-		die("Out of memory, asprintf failed");
+	xasprintf(&r->name, "%s", name);
 
 	if (codec != NULL) {
 		const bool defplug_p = plugin == NULL ||
@@ -361,8 +359,7 @@ check_format_argument(struct hlist_head *libs, const char *conf_path)
 	}
 
 	struct Plugin *p = new_zeroed(struct Plugin);
-	if (asprintf(&p->name, "%s", defplug) < 0)
-		die("Out of memory, asprintf failed");
+	xasprintf(&p->name, "%s", defplug);
 	hlist_add_head(&p->_node, libs);
 
 	free(path);

@@ -100,8 +100,7 @@ decode_header(struct ASN1_Header *tag, struct Stream *str)
 
 tagnum_done:
 		if (tag->num & 0xc0000000) { /* exceeds 30 bits */
-			set_error(&str->errmsg, "Tag number is too big: %u",
-				  tag->num);
+			set_error(str, "Tag number is too big: %u", tag->num);
 			return IE_CONT;
 		}
 		debug_print(" \\_ tag_num = %u", tag->num);
@@ -114,7 +113,7 @@ tagnum_done:
 			return IE_CONT;
 
 		if (c == 0xff) {
-			set_error(&str->errmsg, "Length encoding is invalid\n"
+			set_error(str, "Length encoding is invalid\n"
 				  "  [ITU-T X.690, 8.1.3.5-c]");
 			return IE_CONT;
 		}
@@ -122,8 +121,8 @@ tagnum_done:
 		if (c & 0x80) { /* long form */
 			len_sz = c & 0x7f;
 			if (len_sz > 8) {
-				set_error(&str->errmsg, "Too many octets"
-					  " as for length encoding: %lu",
+				set_error(str, "Too many octets as for length"
+					  " encoding: %lu",
 					  (unsigned long) len_sz);
 				return IE_CONT;
 			}
@@ -233,6 +232,16 @@ new_buffer(size_t size)
 	return buf;
 }
 
+static int
+store(struct Buffer *dest, const void *src, size_t n, struct Stream *str)
+{
+	int r;
+	if ((r = buffer_put(dest, src, n)) != 0)
+		set_error(str, "Insufficient capacity of raw bytes'"
+			  " accumulator");
+	return r;
+}
+
 #ifdef DEBUG
 #  define call(fp, dest, src, n) (fp)((dest), (src), (n))
 #else
@@ -288,8 +297,7 @@ print_prim(struct Stream *str, bool enough, Repr_Codec _decode, struct DecSt *z)
 
 		cont = 1;
 	case 1:
-		if (buffer_put(z->buf_raw, str->data, str->size, &str->errmsg,
-			       "raw bytes' accumulator") != 0)
+		if (store(z->buf_raw, str->data, str->size, str) != 0)
 			return IE_CONT;
 
 		if (!enough) {
@@ -464,7 +472,7 @@ decode(struct DecSt *z, struct Stream *master)
 		if (z->depth == 0) {
 			return IE_DONE;
 		} else {
-			set_error(&master->errmsg, "Unexpected EOF");
+			set_error(master, "Unexpected EOF");
 			return IE_CONT;
 		}
 	}
@@ -502,8 +510,8 @@ decode(struct DecSt *z, struct Stream *master)
 
 		if (indic == IE_CONT) {
 			if (z->depth > 0 && remcap(z) == 0)
-				set_error(&master->errmsg, "Trying to go"
-					  " beyond the end of container");
+				set_error(master, "Trying to go beyond the"
+					  " end of container");
 
 			return IE_CONT;
 		}
@@ -524,8 +532,8 @@ decode(struct DecSt *z, struct Stream *master)
 				goto line_feed;
 
 			if (!contained_p(tag.len, z)) {
-				set_error(&master->errmsg,
-					  "Tag is too big for its container");
+				set_error(master, "Tag is too big for its"
+					  " container");
 				return IE_CONT;
 			}
 			add_capacity(tag.len, z);

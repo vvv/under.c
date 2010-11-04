@@ -59,19 +59,11 @@ static inline size_t buffer_len(const struct Buffer *buf)
  * @dest: destination buffer
  * @src: start of memory area to copy from
  * @n: number of bytes to copy
- * @errmsg: error message (see `set_error()' in "util.h")
- * @buffer_name: name of destination buffer
- *
- * `buffer_name' is used for error message generation. The latter can
- * be disabled by setting `buffer_name' to NULL.
- *
- * XXX TODO: Remove `errmsg' and `buffer_name' parameters.
  *
  * Return -1 if there is not enough space in the buffer, otherwise
  * return 0.
  */
-int buffer_put(struct Buffer *dest, const void *src, size_t n, char **errmsg,
-	       const char *buffer_name);
+int buffer_put(struct Buffer *dest, const void *src, size_t n);
 
 /* Append the byte to the buffer */
 int buffer_putc(struct Buffer *dest, uint8_t c);

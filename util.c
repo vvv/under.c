@@ -7,6 +7,7 @@
  */
 #include <stdio.h>
 #include <stdarg.h>
+#include <assert.h>
 
 #include "util.h"
 
@@ -32,22 +33,21 @@ debug_hexdump(const char *msg, const void *addr, size_t size)
 #endif
 
 void
-set_error(char **errmsg, const char *format, ...)
+xasprintf(char **strp, const char *format, ...)
 {
-	if (*errmsg != NULL)
-		return; /* keep the original error message */
+	assert(*strp == NULL);
 
 	va_list ap;
 	va_start(ap, format);
 
-	*errmsg = xmalloc(80);
-	const size_t nchars = vsnprintf(*errmsg, 80, format, ap);
+	*strp = xmalloc(80);
+	const size_t nchars = vsnprintf(*strp, 80, format, ap);
 	if (nchars >= 80) {
 		/* Not enough space.  Reallocate buffer .. */
-		*errmsg = xrealloc(*errmsg, nchars + 1);
+		*strp = xrealloc(*strp, nchars + 1);
 
 		 /* .. and try again. */
-		vsnprintf(*errmsg, nchars + 1, format, ap);
+		vsnprintf(*strp, nchars + 1, format, ap);
 	}
 
 	va_end(ap);

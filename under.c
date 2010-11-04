@@ -66,24 +66,24 @@ adjust_buffer(struct Buffer *buf, FILE *f)
  * @dest: memory location to store data at
  * @size: maximum number of bytes to read
  * @src: stream to read data from
- * @errmsg: where to put error message
+ * @str: where to put error message
  *
  * Return the number of bytes read. Zero is returned if the
  * end-of-file is reached or an error occurs.
  */
 static size_t
-read_block(void *dest, size_t size, FILE *src, char **errmsg)
+read_block(void *dest, size_t size, FILE *src, struct Stream *str)
 {
 	const size_t n = fread(dest, 1, size, src);
 
 	if (n == 0) {
 		if (feof(src)) {
 			debug_print("read_block: EOF");
-			assert(*errmsg == NULL);
-			*errmsg = NULL;
+			assert(str->errmsg == NULL);
+			str->errmsg = NULL;
 		} else if (ferror(src)) {
 			debug_print("read_block: IO error");
-			set_error(errmsg, strerror(errno));
+			set_error(str, strerror(errno));
 		} else {
 			assert(0 == 1);
 		}
@@ -125,7 +125,7 @@ process_file(enum Codec_T ct, const char *inpath, struct Buffer *inbuf,
 
 	for (;;) {
 		const size_t orig_size = read_block(inbuf->wptr, inbuf->size,
-						    f, &str.errmsg);
+						    f, &str);
 		str.type = ((str.size = orig_size) == 0) ? S_EOF : S_CHUNK;
 		str.data = inbuf->wptr;
 
