@@ -27,13 +27,17 @@ OBJ := $(SRC:.c=.o)
 	cpp -MM -MG $(CPPFLAGS) $< |\
  sed -r 's%^(.+)\.o:%$(@D)/\1.d $(@D)/\1.o:%' >$@
 
+%.so: %.so.0
+	ln -s $^ $@
+
 libunder_%.so.0: %.o
 	$(CC) $(LDFLAGS) -Wl,-soname,$@ $^ -o $@
 # XXX Output file should be versioned.
 # http://tldp.org/HOWTO/Program-Library-HOWTO/shared-libraries.html#AEN95
 
-%.so: %.so.0
-	ln -s $^ $@
+# decode_TBCDstring(), used by libunder_sr.so, is defined in libunder_common.so
+libunder_sr.so.0: sr.o libunder_common.so
+	$(CC) $(LDFLAGS) -Wl,-soname,$@ -L. -lunder_common sr.o -o $@
 
 ctt.h: ctt.in gen-ctt.sh
 	./gen-ctt.sh $< >$@

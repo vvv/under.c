@@ -71,7 +71,7 @@ int buffer_putc(struct Buffer *dest, uint8_t c);
 /* Append formatted string to the buffer */
 int buffer_printf(struct Buffer *dest, const char *format, ...);
 
-/* Print over -- overwrite buffer contents with formatted string */
+/* Overwrite contents of the buffer with formatted string */
 #define buffer_xprintf(dest, format, ...) \
 	({ buffer_reset((dest));          \
 		buffer_printf((dest), (format), ##__VA_ARGS__); })

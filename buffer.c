@@ -61,7 +61,7 @@ buffer_printf(struct Buffer *dest, const char *format, ...)
 	va_end(ap);
 
 	if (n < dest->size) {
-		dest->wptr += ++n; /* position after the trailing '\0' */
+		dest->wptr += n; /* point to the trailing '\0' */
 		dest->size -= n;
 		return 0;
 	}

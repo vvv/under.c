@@ -284,7 +284,7 @@ print_prim(struct Stream *str, bool enough, Repr_Codec _decode, struct DecSt *z)
 			    == 0) {
 				printf("[%s]", buffer_data(z->buf_repr));
 			} else {
-				fprintf(stderr, "*WARNING* print_prim: %s",
+				fprintf(stderr, "*WARNING* print_prim: %s\n",
 					buffer_data(z->buf_repr));
 				print_hexdump_strict(str->data, str->size);
 			}
@@ -313,7 +313,7 @@ print_prim(struct Stream *str, bool enough, Repr_Codec _decode, struct DecSt *z)
 			if (call(_decode, z->buf_repr, raw, n) == 0) {
 				printf("[%s]", buffer_data(z->buf_repr));
 			} else {
-				fprintf(stderr, "*WARNING* print_prim: %s",
+				fprintf(stderr, "*WARNING* print_prim: %s\n",
 					buffer_data(z->buf_repr));
 
 				print_hexdump_strict(raw, n);

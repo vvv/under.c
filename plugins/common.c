@@ -10,7 +10,7 @@
 
 #include "../buffer.h"
 
-/* Telephony Binary Coded Decimal */
+/* TBCD = Telephony Binary Coded Decimal */
 int
 decode_TBCDstring(struct Buffer *dest, const uint8_t *src, size_t n)
 {
@@ -22,6 +22,7 @@ decode_TBCDstring(struct Buffer *dest, const uint8_t *src, size_t n)
 		const uint8_t lsn = *src &0xf;
 
 		if (lsn >= 10 || (msn >= 10 && msn != 15)) {
+			/* XXX a=*, b=#, c=a, d=b, e=c */
 			buffer_xprintf(dest, "Invalid TBCD byte: %02x", *src);
 			return -1;
 		}
@@ -42,4 +43,15 @@ decode_TBCDstring(struct Buffer *dest, const uint8_t *src, size_t n)
 
 	*dest->wptr = 0;
 	return 0;
+}
+
+int
+decode_integer(struct Buffer *dest, const uint8_t *src, size_t n)
+{
+	unsigned long r = 0;
+
+	for (; n != 0; ++src, --n)
+		r = r << 8 | *src;
+
+	return buffer_printf(dest, "%lu", r);
 }
