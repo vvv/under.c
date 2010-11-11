@@ -84,21 +84,17 @@ htab_create(void)
 	return h;
 }
 
-/*
- * Return filename component of `path' with file extension stripped.
- * Return NULL if file extension is not equal to `filext'.
- */
+/* Return filename component of `path' with a file extension stripped */
 static const char *
-basename_stripext(char *path, const char *filext)
+basename_stripext(char *path)
 {
         char *fn = basename(path);
-	char *p = fn + strlen(fn) - strlen(filext);
+	char *p = strrchr(fn, '.');
 
-	if (p <= fn || !streq(p, filext))
-		return NULL;
-        *p = 0;
+	if (p != NULL)
+		*p = 0;
 
-        return fn;
+	return fn;
 }
 
 static struct Plugin *
@@ -351,15 +347,8 @@ check_format_argument(struct hlist_head *libs, const char *conf_path)
 	if (path == NULL)
 		die("Out of memory, strdup failed");
 
-	const char *defplug = basename_stripext(path, ".conf"); /*XXX*/
-	if (defplug == NULL) {
-		fputs("--format argument must have `.conf' suffix\n", stderr);
-		free(path);
-		return -1;
-	}
-
 	struct Plugin *p = new_zeroed(struct Plugin);
-	xasprintf(&p->name, "%s", defplug);
+	xasprintf(&p->name, "%s", basename_stripext(path));
 	hlist_add_head(&p->_node, libs);
 
 	free(path);

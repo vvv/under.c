@@ -25,7 +25,7 @@ struct Repr_Format {
 };
 #define REPR_FORMAT(name) struct Repr_Format name = { NULL, HLIST_HEAD_INIT }
 
-/* Read .conf file filling `dest' */
+/* Read configuration file and fill `dest' */
 int repr_create(struct Repr_Format *dest, const char *conf_path);
 
 /* Free resources allocated for `fmt' */

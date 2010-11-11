@@ -66,7 +66,7 @@ decode_header(struct ASN1_Header *tag, struct Stream *str)
 			return IE_CONT;
 #endif
 
-		cont = 1;
+		++cont;
 	case 1: /* Identifier octet(s) -- cases 1, 2 */
 		debug_print("decode_header, cont=%d", cont);
 
@@ -86,7 +86,7 @@ decode_header(struct ASN1_Header *tag, struct Stream *str)
 		else
 			goto tagnum_done;
 
-		cont = 2;
+		++cont;
 	case 2: /* Tag number > 30 (``high'' tag number) */
 		debug_print("decode_header, cont=%d", cont);
 
@@ -105,7 +105,7 @@ tagnum_done:
 		}
 		debug_print(" \\_ tag_num = %u", tag->num);
 
-		cont = 3;
+		++cont;
 	case 3: /* Initial length octet */
 		debug_print("decode_header, cont=%d", cont);
 
@@ -137,7 +137,7 @@ tagnum_done:
 			break;
 		}
 
-		cont = 4;
+		++cont;
 	case 4: /* Subsequent length octet(s) */
 		debug_print("decode_header, cont=%d", cont);
 
@@ -173,7 +173,7 @@ print_hexdump(struct Stream *str, bool final)
 		debug_print("print_hexdump, cont=%d", cont);
 		putchar('"');
 
-		cont = 1;
+		++cont;
 	case 1:
 		debug_print("print_hexdump, cont=%d", cont);
 		{
@@ -186,7 +186,7 @@ print_hexdump(struct Stream *str, bool final)
 			printf("%02x", c);
 		}
 
-		cont = 2;
+		++cont;
 	case 2:
 		debug_print("print_hexdump, cont=%d", cont);
 
@@ -295,7 +295,7 @@ print_prim(struct Stream *str, bool enough, Repr_Codec _decode, struct DecSt *z)
 		if (z->buf_raw == NULL)
 			z->buf_raw = new_buffer(64);
 
-		cont = 1;
+		++cont;
 	case 1:
 		if (store(z->buf_raw, str->data, str->size, str) != 0)
 			return IE_CONT;

@@ -183,12 +183,12 @@ read_header(struct ASN1_Header *tag, bool *nil, struct Stream *str)
 			break;
 
 		tag->num = 0;
-		cont = 1;
+		++cont;
 	case 1:
 		if (read_tag_number(&tag->num, str) == IE_CONT)
 			return IE_CONT;
 
-		cont = 2;
+		++cont;
 	case 2:
 		if (drop_while(_isspace, str) == IE_CONT)
 			return IE_CONT;
@@ -298,12 +298,12 @@ read_primitive(struct Pstring *dest, struct EncSt *z, struct Stream *str)
 		dest->data = z->acc.wptr;
 		dest->size = 0;
 
-		cont = 1;
+		++cont;
 	case 1:
 		if (primval(dest, &z->acc, str) == IE_CONT)
 			return IE_CONT;
 
-		cont = 2;
+		++cont;
 	case 2:
 		if (drop_while(_isspace, str) == IE_CONT)
 			return IE_CONT;
@@ -515,7 +515,7 @@ read_tree(struct EncSt *z, struct Stream *str)
 		push_frame(cur, z);
 
 header:
-		cont = 1;
+		++cont;
 	case 1:
 		nil = false;
 		if (read_header(&cur->header.rec, &nil, str) == IE_CONT)
@@ -530,7 +530,7 @@ header:
 			}
 		}
 
-		cont = 2;
+		++cont;
 	case 2:
 		if (contents_type(&cur->header.rec.cons_p, str) == IE_CONT)
 			return IE_CONT;
@@ -544,7 +544,7 @@ header:
 
 		cur->contents = new_zeroed(struct Pstring);
 
-		cont = 3;
+		++cont;
 	case 3:
 		if (read_primitive(cur->contents, z, str) == IE_CONT)
 			return IE_CONT;
@@ -558,7 +558,7 @@ header:
 		*parent_len(z) += cur->header.enc.size + cur->contents->size;
 
 tag_end:
-		cont = 4;
+		++cont;
 	case 4:
 		for (;;) {
 			uint8_t c;
