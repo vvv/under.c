@@ -27,7 +27,7 @@
 #include "codec.h"
 #include "repr.h"
 
-#define VERSION "0.4.0"
+#define VERSION "0.4.0-sid"
 
 /*
  * Adjust buffer to the blocksize of a file.
@@ -167,10 +167,10 @@ usage(char *argv0)
 	       "Decode DER from FILE(s), or standard input, to S-expressions.\n"
 	       "\n"
 	       "  -e, --encode   encode S-expressions to DER data\n"
-	       "  -h, --help     display this help and exit\n"
-	       "  -V, --version  output version information and exit\n"
 	       "  -f, --format=FILE  interpret tags in accordance with"
 	       " the specification\n"
+	       "  -h, --help     display this help and exit\n"
+	       "  -V, --version  output version information and exit\n"
 	       "\n"
 	       "With no FILE, or when FILE is -, read standard input.\n"
 	       "\n"

@@ -430,7 +430,7 @@ struct Node {
 /* Backtrace element */
 struct Frame {
 	struct list_head h;
-	struct Node *node; /* The encoding tree node this frame points to */
+	struct Node *node; /* The encoding tree's node this frame points to */
 };
 
 /* Return the current node; return NULL if the backtrace is empty */
