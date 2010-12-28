@@ -1,0 +1,5 @@
+* Encoder should support ;Lisp comments.
+* `--offsets' option: make decoder print record offsets (e.g., `; 144').
+* Implement pluggable encoders.
+* LLVM-like error reporting
+  [http://blog.llvm.org/2010/04/amazing-feats-of-clang-error-recovery.html]

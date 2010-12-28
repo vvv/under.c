@@ -51,8 +51,8 @@ void repr_show_header(const struct Repr_Format *fmt, enum Tag_Class cls,
 typedef int (*Repr_Codec)(struct Buffer *dest, const uint8_t *src, size_t n);
 
 /*
- * Return tag value decoder -- converter from a primitive encoding to
- * human-friendly representation.
+ * Return tag value decoder, i.e., a pointer to the function that
+ * converts raw encoding (primitive) to human-friendly representation.
  *
  * Returned value can be NULL.
  */
